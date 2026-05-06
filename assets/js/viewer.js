@@ -1,3 +1,5 @@
+// Visor - Porta Retrato v1.1
+// Actualizado: 05-05-2026
 let playlist = [];
 let currentIndex = 0;
 let currentSettings = { duration: 10, animation: 'fade', clock_style: 'classic', clock_size: 'standard', date_format: 'full' };

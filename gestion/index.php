@@ -120,7 +120,19 @@
             <div class="modal-section">
                 <p class="section-label">Duración (segundos)</p>
                 <div class="input-wrapper"><i class="fas fa-clock"></i><input type="number" id="slide-duration" min="1" max="60"></div>
-                <button onclick="saveSlideOnly()" class="btn-primary-aura" style="background:var(--accent-gradient);">Guardar Slide</button>
+                
+                <p class="section-label">Animación</p>
+                <div class="input-wrapper">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <select id="slide-animation" class="aura-select-premium" style="padding-left: 45px;">
+                        <option value="fade">Desvanecer (Fade)</option>
+                        <option value="slide">Deslizar (Slide)</option>
+                        <option value="zoom">Zoom</option>
+                        <option value="none">Sin animación</option>
+                    </select>
+                </div>
+
+                <button onclick="saveSlideOnly()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar Slide</button>
             </div>
         </div>
     </div>
