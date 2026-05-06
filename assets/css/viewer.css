@@ -1,0 +1,62 @@
+:root {
+    --accent: #2dd4bf;
+    --accent-gradient: linear-gradient(135deg, #8b5cf6 0%, #2dd4bf 100%);
+}
+
+body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; cursor: none; }
+#viewer-container { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; position: relative; background: radial-gradient(circle, #111 0%, #000 100%); }
+#media-display { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; overflow: hidden; }
+#media-display img, #media-display video { width: 100%; height: 100%; object-fit: cover; }
+
+/* RELOJ BASE */
+.clock-glass { position: fixed; bottom: 30px; right: 30px; z-index: 1000; backdrop-filter: blur(20px); border-radius: 28px; padding: 20px 30px; color: white; font-family: 'Inter', sans-serif; text-align: right; box-shadow: 0 10px 40px rgba(0,0,0,0.4); transition: all 0.5s ease; }
+#clock-time { line-height: 1; margin-bottom: 5px; letter-spacing: -1px; transition: all 0.5s; }
+#clock-date { font-weight: 600; opacity: 0.8; transition: all 0.5s; }
+
+/* TAMAÑOS */
+.size-small #clock-time { font-size: 2rem; } .size-small #clock-date { font-size: 0.8rem; }
+.size-standard #clock-time { font-size: 3rem; } .size-standard #clock-date { font-size: 1rem; }
+.size-large #clock-time { font-size: 4.5rem; } .size-large #clock-date { font-size: 1.3rem; }
+.size-extra #clock-time { font-size: 7rem; } .size-extra #clock-date { font-size: 1.8rem; }
+
+/* --- LOS 25 ESTILOS --- */
+
+/* MINIMALISTAS (V1 - V12) */
+.style-v-1 { background: transparent; border: none; } .style-v-1 #clock-time { font-weight: 100; opacity: 0.9; }
+.style-v-2 { background: transparent; border: none; } .style-v-2 #clock-time { font-family: serif; font-style: italic; border-bottom: 1px solid white; }
+.style-v-3 { background: #000; border: 1px solid #333; } .style-v-3 #clock-time { font-weight: 900; }
+.style-v-4 { border: 2px solid white; border-radius: 50%; width: 180px; height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; } .style-v-4 #clock-time { font-size: 2.2rem !important; }
+.style-v-5 { background: transparent; border: none; } .style-v-5 #clock-time { font-weight: 200; letter-spacing: 15px; }
+.style-v-6 { background: rgba(45, 212, 191, 0.1); border: 1px solid #2dd4bf; } .style-v-6 #clock-time { color: #2dd4bf; font-weight: 100; }
+.style-v-7 { background: white; color: black; border-bottom: 8px solid #ef4444; border-radius: 0; } .style-v-7 #clock-time { font-weight: 900; color: black; }
+.style-v-8 { background: #f1f5f9; box-shadow: inset 10px 10px 20px #cbd5e1, inset -10px -10px 20px #ffffff; border: none; color: #1e293b; } .style-v-8 #clock-time { color: #1e293b; }
+.style-v-9 { background: #000; border-left: 10px solid #2dd4bf; } .style-v-9 #clock-time { font-family: monospace; color: #2dd4bf; }
+.style-v-10 { background: white; color: #000; border-radius: 0; text-align: left; padding-left: 20px; border-left: 15px solid #000; } .style-v-10 #clock-time { color: #000; font-weight: 800; }
+.style-v-11 { background: transparent; border: none; } .style-v-11 #clock-time { -webkit-text-stroke: 1.5px white; color: transparent; font-weight: 900; }
+.style-v-12 { background: transparent; border: none; } .style-v-12 #clock-time { font-family: serif; letter-spacing: 5px; opacity: 0.7; }
+
+/* LOCOS (V13 - V25) */
+.style-v-13 { background: transparent; } .style-v-13 #clock-time { background: linear-gradient(#ff00ff, #00ffff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; }
+.style-v-14 { background: #000; border: 2px solid white; box-shadow: 0 0 20px white; } .style-v-14 #clock-time { font-family: monospace; text-shadow: 0 0 10px white; }
+.style-v-15 { background: var(--accent-gradient); border: none; } .style-v-15 #clock-time { font-weight: 800; }
+.style-v-16 { background: transparent; } .style-v-16 #clock-time { color: #ef4444; font-weight: 900; transform: skew(-15deg); text-shadow: 4px 4px 0 white; }
+.style-v-17 { background: #fbbf24; border: 4px solid black; color: black; box-shadow: 10px 10px 0 black; } .style-v-17 #clock-time { color: black; font-weight: 900; }
+.style-v-18 { background: #fdf2f8; border: 3px solid #f472b6; border-radius: 40px 0; color: #db2777; } .style-v-18 #clock-time { font-family: cursive; color: #db2777; }
+.style-v-19 { background: black; border-radius: 50%; width: 180px; height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 5px solid red; } .style-v-19 #clock-time { color: red; font-size: 2rem !important; }
+.style-v-20 { background: transparent; } .style-v-20 #clock-time { background: linear-gradient(45deg, #f59e0b, #ef4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; filter: drop-shadow(0 0 10px rgba(239,68,68,0.5)); }
+.style-v-21 { border: 3px dashed #6366f1; background: rgba(99, 102, 241, 0.1); } .style-v-21 #clock-time { color: #6366f1; font-weight: bold; }
+.style-v-22 { background: #000; } .style-v-22 #clock-time { color: white; text-shadow: 3px 0 #ff00c1, -3px 0 #00fff9; font-family: serif; font-weight: 900; }
+.style-v-23 { background: #e2e8f0; border-radius: 50px; color: #334155; padding: 10px 40px; } .style-v-23 #clock-time { font-weight: 800; color: #0f172a; }
+.style-v-24 { background: #000; border-bottom: 5px double #4ade80; } .style-v-24 #clock-time { color: #4ade80; font-family: monospace; }
+.style-v-25 { background: transparent; } .style-v-25 #clock-time { background: linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; background-size: 300%; animation: psy 5s linear infinite; }
+@keyframes psy { to { background-position: 300%; } }
+
+/* CLIMA */
+.weather-glass { position: fixed; top: 30px; right: 30px; z-index: 1000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 24px; padding: 15px 25px; display: flex; align-items: center; gap: 20px; color: white; font-family: 'Inter', sans-serif; }
+#now-temp { font-size: 2.2rem; font-weight: 800; line-height: 1; }
+#now-city { display: block; font-size: 0.8rem; opacity: 0.8; font-weight: 600; text-transform: uppercase; }
+.weather-divider { width: 1px; height: 40px; background: rgba(255,255,255,0.2); }
+.weather-carousel { display: flex; gap: 20px; }
+.weather-item { display: flex; flex-direction: column; align-items: center; min-width: 50px; }
+.weather-item span { font-size: 0.9rem; font-weight: 700; }
+.weather-item small { font-size: 0.7rem; opacity: 0.7; }
