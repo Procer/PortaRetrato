@@ -175,7 +175,13 @@
                     <p>Seleccionar archivos</p>
                     <input type="file" id="file-input" multiple accept="image/*,video/*" hidden>
                 </div>
-                <button onclick="uploadFiles()" class="btn-primary-aura">Subir ahora</button>
+                
+                <div id="progress-wrapper" style="display:none; margin-top:20px;">
+                    <progress id="upload-progress" value="0" max="100" style="width:100%; height:8px; accent-color: var(--accent);"></progress>
+                    <p style="font-size: 0.7rem; text-align: center; color: var(--accent); margin-top: 5px; font-weight: 700;">SUBIENDO...</p>
+                </div>
+
+                <button onclick="uploadFiles()" class="btn-primary-aura" style="margin-top: 20px;">Subir ahora</button>
             </div>
         </div>
     </div>
