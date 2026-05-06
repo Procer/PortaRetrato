@@ -165,7 +165,10 @@
     <div id="upload-modal" class="modal-overlay" style="display:none;">
         <div class="glass-panel modal-content aura-modal">
             <button class="close-btn" onclick="closeModal('upload-modal')"><i class="fas fa-times"></i></button>
-            <div class="modal-header"><h2>Subir</h2></div>
+            <div class="modal-header">
+                <h2>Subir</h2>
+                <p style="font-size: 0.8rem; color: var(--accent); font-weight: 700; margin-top: 5px;">Álbum: <span id="modal-album-name"></span></p>
+            </div>
             <div class="modal-section">
                 <div class="upload-area-modern" onclick="document.getElementById('file-input').click()">
                     <i class="fas fa-images"></i>
