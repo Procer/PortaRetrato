@@ -1,18 +1,8 @@
-# PHP
-.php_cs.cache
-.phpunit.result.cache
-composer.lock
-vender/
-
-# Entorno
+﻿# Dependencias y archivos que no deben versionarse
+/vendor/
+/node_modules/
 .env
-.env.local
-
-# Archivos de Sistema
-Thumbs.db
-desktop.ini
+*.log
+*.tmp
 .DS_Store
-
-# Carpeta de subidas (Recomendado ignorar para no subir fotos personales)
-uploads/*
-!uploads/.gitkeep
+Thumbs.db

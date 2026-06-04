@@ -8,6 +8,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if(form) form.addEventListener('submit', (e) => { e.preventDefault(); uploadFiles(); });
 });
 
+function setWeatherSize(value, element) {
+    setSegmentValue('weather-size-val', value, element);
+    const preview = document.getElementById('weather-size-preview');
+    if (preview) preview.className = preview.className.replace(/weather-size-\S+/, `weather-size-${value}`);
+}
+
+function setWeatherForecastSize(value, element) {
+    setSegmentValue('weather-forecast-size-val', value, element);
+    const preview = document.getElementById('weather-size-preview');
+    if (preview) preview.className = preview.className.replace(/wf-size-\S+/, `wf-size-${value}`);
+}
+
 function setSegmentValue(inputId, value, element) {
     document.getElementById(inputId).value = value;
     const parent = element.parentElement;
@@ -147,14 +159,22 @@ async function openWeatherModal() {
     const response = await fetch('../backend/api.php?action=get_weather_settings');
     const settings = await response.json();
     document.getElementById('weather-city-input').value = settings.weather_city || '';
-    document.getElementById('weather-days-input').value = settings.weather_days || '3';
-    document.getElementById('weather-hours-input').value = settings.weather_hours || '6';
-    const currentStyle = settings.weather_icons || 'aura-glow';
-    document.getElementById('weather-icons-style').value = currentStyle;
-    document.querySelectorAll('.style-card:not(.clock-style-card)').forEach(card => {
-        if(card.getAttribute('data-value') === currentStyle) card.classList.add('selected');
-        else card.classList.remove('selected');
+
+    const size = settings.weather_size || 'standard';
+    document.getElementById('weather-size-val').value = size;
+    document.querySelectorAll('#weather-size-control .segment-item').forEach(el => {
+        el.classList.toggle('selected', el.getAttribute('data-value') === size);
     });
+
+    const forecastSize = settings.weather_forecast_size || 'standard';
+    document.getElementById('weather-forecast-size-val').value = forecastSize;
+    document.querySelectorAll('#weather-forecast-control .segment-item').forEach(el => {
+        el.classList.toggle('selected', el.getAttribute('data-value') === forecastSize);
+    });
+
+    const preview = document.getElementById('weather-size-preview');
+    if (preview) preview.className = `weather-preview-box weather-size-${size} wf-size-${forecastSize}`;
+
     document.getElementById('weather-modal').style.display = 'flex';
 }
 
@@ -169,10 +189,10 @@ async function saveWeatherOnly() {
         const location = geoData.results[0];
         const settings = {
             weather_city: `${location.name}, ${location.admin1 || ''}`,
-            weather_lat: location.latitude.toString(), weather_lon: location.longitude.toString(),
-            weather_days: document.getElementById('weather-days-input').value,
-            weather_hours: document.getElementById('weather-hours-input').value,
-            weather_icons: document.getElementById('weather-icons-style').value
+            weather_lat: location.latitude.toString(),
+            weather_lon: location.longitude.toString(),
+            weather_size: document.getElementById('weather-size-val').value,
+            weather_forecast_size: document.getElementById('weather-forecast-size-val').value
         };
         const response = await fetch('../backend/api.php?action=update_weather_settings', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
@@ -241,23 +261,57 @@ async function loadMedia() {
     } catch (e) { console.error("Error media", e); }
 }
 
-function uploadFiles() {
+async function uploadFiles() {
     const input = document.getElementById('file-input');
     if (!input || input.files.length === 0) return;
-    const formData = new FormData();
-    formData.append('album_id', currentAlbumId);
-    for (let i = 0; i < input.files.length; i++) { formData.append('media[]', input.files[i]); }
-    const wrapper = document.getElementById('progress-wrapper'); if(wrapper) wrapper.style.display = 'block';
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '../backend/upload.php', true);
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { document.getElementById('upload-progress').value = (e.loaded / e.total) * 100; } };
-    xhr.onload = () => {
-        if (xhr.status === 200) {
-            if(wrapper) wrapper.style.display = 'none'; input.value = ''; loadMedia();
-            showNotification("Fotos añadidas", "fa-cloud-arrow-up"); closeModal('upload-modal');
+
+    const files = Array.from(input.files);
+    const total = files.length;
+    const wrapper = document.getElementById('progress-wrapper');
+    const progressBar = document.getElementById('upload-progress');
+    const progressText = document.getElementById('upload-progress-text');
+
+    if (wrapper) wrapper.style.display = 'block';
+    let uploaded = 0;
+
+    for (let i = 0; i < files.length; i++) {
+        if (progressText) progressText.innerText = `SUBIENDO ${i + 1} / ${total}...`;
+
+        const formData = new FormData();
+        formData.append('album_id', currentAlbumId);
+        formData.append('media[]', files[i]);
+
+        try {
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '../backend/upload.php', true);
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable && progressBar) {
+                        progressBar.value = ((i + e.loaded / e.total) / total) * 100;
+                    }
+                };
+                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error(xhr.status));
+                xhr.onerror = reject;
+                xhr.send(formData);
+            });
+            uploaded++;
+        } catch (e) {
+            console.error(`Error subiendo ${files[i].name}:`, e);
         }
-    };
-    xhr.send(formData);
+
+        if (progressBar) progressBar.value = ((i + 1) / total) * 100;
+    }
+
+    if (wrapper) wrapper.style.display = 'none';
+    if (progressBar) progressBar.value = 0;
+    input.value = '';
+    loadMedia();
+
+    const msg = uploaded === total
+        ? `${total} archivo${total !== 1 ? 's' : ''} añadido${total !== 1 ? 's' : ''}`
+        : `${uploaded} de ${total} subidos (${total - uploaded} fallaron)`;
+    showNotification(msg, uploaded === total ? "fa-cloud-arrow-up" : "fa-triangle-exclamation");
+    closeModal('upload-modal');
 }
 
 async function deleteMedia(id) {

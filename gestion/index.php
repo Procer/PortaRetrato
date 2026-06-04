@@ -144,7 +144,44 @@
             <div class="modal-section">
                 <p class="section-label">Ubicación</p>
                 <div class="input-wrapper"><i class="fas fa-location-dot"></i><input type="text" id="weather-city-input" placeholder="Zarate, Argentina"></div>
-                <button onclick="saveWeatherOnly()" class="btn-primary-aura" style="background:var(--accent-gradient);">Guardar Clima</button>
+
+                <p class="section-label" style="margin-top:20px;">Tamaño de temperatura actual</p>
+                <div id="weather-size-control" class="segmented-control">
+                    <div class="segment-item" onclick="setWeatherSize('small', this)" data-value="small">PEQUEÑO</div>
+                    <div class="segment-item selected" onclick="setWeatherSize('standard', this)" data-value="standard">ESTÁNDAR</div>
+                    <div class="segment-item" onclick="setWeatherSize('large', this)" data-value="large">GRANDE</div>
+                    <div class="segment-item" onclick="setWeatherSize('extra', this)" data-value="extra">EXTRA</div>
+                </div>
+                <input type="hidden" id="weather-size-val" value="standard">
+
+                <p class="section-label" style="margin-top:20px;">Tamaño del pronóstico</p>
+                <div id="weather-forecast-control" class="segmented-control">
+                    <div class="segment-item" onclick="setWeatherForecastSize('small', this)" data-value="small">PEQUEÑO</div>
+                    <div class="segment-item selected" onclick="setWeatherForecastSize('standard', this)" data-value="standard">ESTÁNDAR</div>
+                    <div class="segment-item" onclick="setWeatherForecastSize('large', this)" data-value="large">GRANDE</div>
+                    <div class="segment-item" onclick="setWeatherForecastSize('extra', this)" data-value="extra">EXTRA</div>
+                </div>
+                <input type="hidden" id="weather-forecast-size-val" value="standard">
+
+                <div class="weather-preview-wrap">
+                    <div id="weather-size-preview" class="weather-preview-box weather-size-standard wf-size-standard">
+                        <div class="wp-now">
+                            <img src="https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/fill/all/partly-cloudy-day.svg" class="wp-icon" onerror="this.style.display='none'">
+                            <div>
+                                <div class="wp-temp">22°<small class="wp-minmax">MÁX 25° MÍN 14°</small></div>
+                                <small class="wp-city">ZÁRATE</small>
+                            </div>
+                        </div>
+                        <div class="wp-divider"></div>
+                        <div class="wp-items">
+                            <div class="wp-item"><span>19°</span><small>14:00</small></div>
+                            <div class="wp-item"><span>17°</span><small>17:00</small></div>
+                            <div class="wp-item"><span>14°</span><small>20:00</small></div>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="saveWeatherOnly()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar Clima</button>
             </div>
         </div>
     </div>
@@ -178,7 +215,7 @@
                 
                 <div id="progress-wrapper" style="display:none; margin-top:20px;">
                     <progress id="upload-progress" value="0" max="100" style="width:100%; height:8px; accent-color: var(--accent);"></progress>
-                    <p style="font-size: 0.7rem; text-align: center; color: var(--accent); margin-top: 5px; font-weight: 700;">SUBIENDO...</p>
+                    <p id="upload-progress-text" style="font-size: 0.7rem; text-align: center; color: var(--accent); margin-top: 5px; font-weight: 700;">SUBIENDO...</p>
                 </div>
 
                 <button onclick="uploadFiles()" class="btn-primary-aura" style="margin-top: 20px;">Subir ahora</button>
@@ -227,6 +264,37 @@
         .segment-item:hover { color: var(--accent); }
         .segment-item.selected { background: white; color: var(--accent); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
         .divider-aura { height: 1px; background: #f1f5f9; margin: 25px 0; }
+
+        /* PREVIEW WIDGET CLIMA */
+        .weather-preview-wrap { margin: 15px 0 10px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
+        .weather-preview-wrap::-webkit-scrollbar { display: none; }
+        .weather-preview-box { background: rgba(15,23,42,0.92); border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 13px 18px; display: inline-flex; align-items: center; gap: 14px; color: white; font-family: 'Inter', sans-serif; transition: all 0.25s ease; min-width: min-content; }
+        .wp-now { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+        .wp-icon { width: 44px; height: 40px; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4)); }
+        .wp-temp { font-size: 2.2rem; font-weight: 800; line-height: 1; transition: font-size 0.25s; display: flex; flex-direction: column; align-items: flex-start; }
+        .wp-minmax { font-size: 0.55rem; opacity: 0.75; margin-top: 3px; font-weight: 600; letter-spacing: 0; }
+        .wp-city { display: block; font-size: 0.8rem; opacity: 0.75; font-weight: 600; text-transform: uppercase; transition: font-size 0.25s; }
+        .wp-divider { width: 1px; height: 36px; background: rgba(255,255,255,0.18); flex-shrink: 0; }
+        .wp-items { display: flex; gap: 12px; flex-shrink: 0; }
+        .wp-item { display: flex; flex-direction: column; align-items: center; min-width: 36px; }
+        .wp-item span { font-size: 0.9rem; font-weight: 700; transition: font-size 0.25s; }
+        .wp-item small { font-size: 0.7rem; opacity: 0.65; transition: font-size 0.25s; }
+
+        /* temp + ciudad */
+        .weather-size-small .wp-temp { font-size: 1.4rem; }
+        .weather-size-small .wp-city { font-size: 0.6rem; }
+        .weather-size-large .wp-temp { font-size: 3.2rem; }
+        .weather-size-large .wp-city { font-size: 1.1rem; }
+        .weather-size-extra .wp-temp { font-size: 4.4rem; }
+        .weather-size-extra .wp-city { font-size: 1.4rem; }
+
+        /* pronóstico */
+        .wf-size-small .wp-item span  { font-size: 0.65rem; }
+        .wf-size-small .wp-item small { font-size: 0.5rem; }
+        .wf-size-large .wp-item span  { font-size: 1.4rem; }
+        .wf-size-large .wp-item small { font-size: 1.1rem; }
+        .wf-size-extra .wp-item span  { font-size: 1.9rem; }
+        .wf-size-extra .wp-item small { font-size: 1.5rem; }
     </style>
     <script src="../assets/js/gestion.js"></script>
 </body>

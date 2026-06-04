@@ -10,13 +10,15 @@ let weatherCarouselItems = [];
 
 const display = document.getElementById('media-display');
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     loadPlaylist();
-    loadWeather();
+    await loadSettings();
+    loadWeatherData();
     updateClock();
-    setInterval(loadPlaylist, 60000); 
-    setInterval(loadWeather, 1800000); 
-    setInterval(rotateWeather, 8000); 
+    setInterval(loadPlaylist, 60000);
+    setInterval(loadSettings, 60000);
+    setInterval(loadWeatherData, 1800000);
+    setInterval(rotateWeather, 8000);
     setInterval(updateClock, 1000);
 });
 
@@ -51,16 +53,20 @@ function updateClock() {
     if(widget) widget.className = `clock-glass style-${currentSettings.clock_style} size-${currentSettings.clock_size}`;
 }
 
-async function loadWeather() {
+async function loadSettings() {
     try {
         const setRes = await fetch('backend/api.php?action=get_weather_settings');
         const settings = await setRes.json();
-        
+        if (settings.error) return;
+
         currentSettings.duration = parseInt(settings.slide_duration) || 10;
         currentSettings.animation = settings.slide_animation || 'fade';
         currentSettings.clock_style = settings.clock_style || 'classic';
         currentSettings.clock_size = settings.clock_size || 'standard';
         currentSettings.date_format = settings.date_format || 'full';
+
+        const prevLat = weatherConfig.weather_lat;
+        const prevLon = weatherConfig.weather_lon;
 
         weatherConfig = {
             weather_city: settings.weather_city || 'Buenos Aires',
@@ -68,13 +74,28 @@ async function loadWeather() {
             weather_lon: settings.weather_lon || '-58.3816',
             weather_days: settings.weather_days || '3',
             weather_hours: settings.weather_hours || '6',
-            weather_icons: settings.weather_icons || 'aura-glow'
+            weather_icons: settings.weather_icons || 'aura-glow',
+            weather_size: settings.weather_size || 'standard',
+            weather_forecast_size: settings.weather_forecast_size || 'standard'
         };
+
+        if (weatherData) {
+            if (prevLat !== weatherConfig.weather_lat || prevLon !== weatherConfig.weather_lon) {
+                await loadWeatherData();
+            } else {
+                updateWeatherUI();
+            }
+        }
+    } catch (e) { console.error("Error settings", e); }
+}
+
+async function loadWeatherData() {
+    try {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherConfig.weather_lat}&longitude=${weatherConfig.weather_lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`;
         const res = await fetch(url);
         weatherData = await res.json();
         updateWeatherUI();
-    } catch (e) { console.error("Error weather", e); }
+    } catch (e) { console.error("Error weather data", e); }
 }
 
 function updateWeatherUI() {
@@ -84,7 +105,7 @@ function updateWeatherUI() {
     const nowIcon = document.getElementById('now-icon');
     if(!widget || !weatherData) return;
 
-    widget.className = `weather-glass style-${weatherConfig.weather_icons}`;
+    widget.className = `weather-glass style-${weatherConfig.weather_icons} weather-size-${weatherConfig.weather_size} weather-forecast-${weatherConfig.weather_forecast_size}`;
     const currentT = Math.round(weatherData.current.temperature_2m);
     const todayMax = Math.round(weatherData.daily.temperature_2m_max[0]);
     const todayMin = Math.round(weatherData.daily.temperature_2m_min[0]);
@@ -101,7 +122,7 @@ function updateWeatherUI() {
     for(let i=1; i<=parseInt(weatherConfig.weather_hours); i++) {
         const time = new Date(weatherData.hourly.time[i]).getHours();
         const code = weatherData.hourly.weather_code[i];
-        hoursHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow')}'" style="width:32px; height:32px; margin-bottom:8px; ${imgStyle}"><span>${Math.round(weatherData.hourly.temperature_2m[i])}°</span><small>${time}:00</small></div>`;
+        hoursHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow')}'" class="wi-icon" style="${imgStyle}"><span>${Math.round(weatherData.hourly.temperature_2m[i])}°</span><small>${time}:00</small></div>`;
     }
     hoursHtml += '</div>';
     weatherCarouselItems.push(hoursHtml);
@@ -113,7 +134,7 @@ function updateWeatherUI() {
         const code = weatherData.daily.weather_code[i];
         const max = Math.round(weatherData.daily.temperature_2m_max[i]);
         const min = Math.round(weatherData.daily.temperature_2m_min[i]);
-        daysHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow')}'" style="width:32px; height:32px; margin-bottom:8px; ${imgStyle}"><span style="font-size:0.8rem;">${max}° <small style="opacity:0.6; font-size:0.6rem;">${min}°</small></span><small>${daysArr[date.getDay()]}</small></div>`;
+        daysHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow')}'" class="wi-icon" style="${imgStyle}"><span>${max}° <small class="wi-min">${min}°</small></span><small>${daysArr[date.getDay()]}</small></div>`;
     }
     daysHtml += '</div>';
     weatherCarouselItems.push(daysHtml);
@@ -147,7 +168,7 @@ function getPremiumIconURL(code, styleName) {
     else if (c >= 51 && c <= 55) name = 'drizzle';
     else if (c >= 61 && c <= 65) name = 'rain';
     else if (c >= 71 && c <= 77) name = 'snow';
-    else if (c >= 80 && code <= 82) name = 'rain'; 
+    else if (c >= 80 && c <= 82) name = 'rain';
     else if (c >= 95) name = 'thunderstorms';
     else name = 'cloudy';
     let folder = 'fill'; 
