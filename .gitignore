@@ -1,8 +1,8 @@
-﻿# ------- .gitignore -------
+# ------- .gitignore -------
 # Ignorar carpetas de recursos multimedia
 imagenes/
 videos/
-
+uploads/
 # Archivos y carpetas habituales que no deben versionarse
 /vendor/
 node_modules/
