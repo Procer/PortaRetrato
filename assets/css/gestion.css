@@ -109,18 +109,17 @@ body {
     position: relative;
     aspect-ratio: 1;
     box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease;
+    transition: box-shadow 0.3s ease;
     cursor: pointer;
 }
 
 .card:hover {
-    transform: translateY(-5px) scale(1.015);
     box-shadow: 0 16px 36px rgba(139,92,246,0.18), 0 4px 10px rgba(0,0,0,0.06);
 }
 
 .card:active {
-    transform: scale(0.96);
-    transition: transform 0.1s ease;
+    opacity: 0.85;
+    transition: opacity 0.1s ease;
 }
 
 .card img, .card video {
