@@ -7,6 +7,8 @@ let weatherConfig = { city: '', lat: '', lon: '', days: 3, hours: 6, icons: 'aur
 let weatherData = null;
 let weatherCarouselIndex = 0;
 let weatherCarouselItems = [];
+let kbIndex = 0;
+const KB = ['kb-1','kb-2','kb-3','kb-4','kb-5','kb-6'];
 
 const display = document.getElementById('media-display');
 
@@ -238,6 +240,8 @@ function showNext() {
 
         const show = () => {
             reveal(img, () => {
+                img.style.animation = `${KB[kbIndex % KB.length]} ${duration}ms linear forwards`;
+                kbIndex++;
                 timer = setTimeout(() => { advanceIndex(); showNext(); }, duration);
             });
         };
