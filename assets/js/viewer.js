@@ -195,22 +195,84 @@ async function loadPlaylist() {
 function showNext() {
     if (playlist.length === 0) return;
     const item = playlist[currentIndex];
-    display.innerHTML = ''; 
+    const FADE = 700;
+    const anim = currentSettings.animation || 'fade';
+
+    function enterState(el) {
+        el.style.opacity = '0';
+        if (anim === 'slide') {
+            el.style.transform = 'translateX(100%)';
+            el.style.transition = `opacity ${FADE}ms ease, transform ${FADE}ms cubic-bezier(0.25,0.46,0.45,0.94)`;
+        } else if (anim === 'zoom') {
+            el.style.transform = 'scale(1.07)';
+            el.style.transition = `opacity ${FADE}ms ease, transform ${FADE}ms ease`;
+        } else {
+            el.style.transition = `opacity ${FADE}ms ease`;
+        }
+    }
+
+    function activeState(el) {
+        el.style.opacity = '1';
+        if (anim === 'slide') el.style.transform = 'translateX(0)';
+        if (anim === 'zoom') el.style.transform = 'scale(1)';
+    }
+
+    function reveal(newEl, onVisible) {
+        enterState(newEl);
+        display.appendChild(newEl);
+        void newEl.offsetHeight; // force reflow para activar la transición
+        activeState(newEl);
+        setTimeout(() => {
+            [...display.children].forEach(el => { if (el !== newEl) el.remove(); });
+            if (onVisible) onVisible();
+        }, FADE);
+    }
+
     if (item.tipo === 'imagen') {
         const img = new Image();
         img.src = item.ruta;
-        img.className = `anim-${currentSettings.animation}`;
-        display.appendChild(img);
-        const duration = currentSettings.duration || 10;
-        setTimeout(() => { advanceIndex(); showNext(); }, duration * 1000);
+        const duration = (currentSettings.duration || 10) * 1000;
+        let timer;
+
+        img.onerror = () => { clearTimeout(timer); advanceIndex(); showNext(); };
+
+        const show = () => {
+            reveal(img, () => {
+                timer = setTimeout(() => { advanceIndex(); showNext(); }, duration);
+            });
+        };
+
+        if (img.complete && img.naturalWidth > 0) show();
+        else img.onload = show;
+
     } else if (item.tipo === 'video') {
         const video = document.createElement('video');
         video.src = item.ruta;
         video.autoplay = true;
         video.muted = true;
         video.onended = () => { advanceIndex(); showNext(); };
-        video.onerror = () => { advanceIndex(); showNext(); }
+        video.onerror = () => { video.remove(); advanceIndex(); showNext(); };
+
+        enterState(video);
         display.appendChild(video);
+
+        let shown = false;
+        const show = () => {
+            if (shown) return;
+            shown = true;
+            void video.offsetHeight;
+            activeState(video);
+            setTimeout(() => {
+                [...display.children].forEach(el => { if (el !== video) el.remove(); });
+            }, FADE);
+        };
+
+        video.addEventListener('canplay', show, { once: true });
+        setTimeout(show, 1500); // fallback si canplay tarda o no dispara
+
+    } else {
+        advanceIndex();
+        showNext();
     }
 }
 
