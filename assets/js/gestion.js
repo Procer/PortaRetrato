@@ -40,6 +40,29 @@ function closeModal(modalId) {
     else { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); }
 }
 
+function openLightbox(url, tipo) {
+    const img = document.getElementById('lightbox-img');
+    const video = document.getElementById('lightbox-video');
+    if (tipo === 'video') {
+        video.src = '../' + url;
+        video.style.display = 'block';
+        img.style.display = 'none';
+        img.src = '';
+    } else {
+        img.src = '../' + url;
+        img.style.display = 'block';
+        video.style.display = 'none';
+        video.src = '';
+    }
+    document.getElementById('lightbox-modal').style.display = 'flex';
+}
+
+function closeLightbox() {
+    document.getElementById('lightbox-img').src = '';
+    document.getElementById('lightbox-video').src = '';
+    document.getElementById('lightbox-modal').style.display = 'none';
+}
+
 function showNotification(message, icon = 'fas fa-check-circle', duration = 3000) {
     const container = document.getElementById('notification-container');
     const toast = document.createElement('div');
@@ -255,7 +278,8 @@ async function loadMedia() {
         media.forEach(item => {
             const card = document.createElement('div'); card.className = 'card';
             const content = item.tipo === 'video' ? `<video src="../${item.ruta}" muted></video>` : `<img src="../${item.ruta}" loading="lazy">`;
-            card.innerHTML = `${content}<div class="overlay"><button onclick="deleteMedia(${item.id})" style="background:rgba(255,255,255,0.9); border:none; padding:10px; border-radius:12px; color:#ef4444; cursor:pointer;"><i class="fas fa-trash-can"></i></button></div>`;
+            card.innerHTML = `${content}<div class="overlay"><button onclick="event.stopPropagation(); deleteMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#ef4444; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-trash-can"></i></button></div>`;
+            card.onclick = () => openLightbox(item.ruta, item.tipo);
             grid.appendChild(card);
         });
     } catch (e) { console.error("Error media", e); }

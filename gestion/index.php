@@ -223,6 +223,15 @@
         </div>
     </div>
 
+    <!-- LIGHTBOX -->
+    <div id="lightbox-modal" class="modal-overlay" style="display:none; background:rgba(0,0,0,0.96); backdrop-filter:blur(24px); padding:0; align-items:center; justify-content:center;" onclick="closeLightbox()">
+        <button onclick="closeLightbox()" style="position:fixed; top:20px; right:20px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15); width:44px; height:44px; border-radius:50%; color:white; cursor:pointer; font-size:1rem; z-index:3001; backdrop-filter:blur(10px); transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'"><i class="fas fa-times"></i></button>
+        <div onclick="event.stopPropagation()" style="display:flex; align-items:center; justify-content:center;">
+            <img id="lightbox-img" src="" alt="" style="display:none; max-width:92vw; max-height:92vh; object-fit:contain; border-radius:10px; box-shadow:0 40px 80px rgba(0,0,0,0.7);">
+            <video id="lightbox-video" src="" controls style="display:none; max-width:92vw; max-height:92vh; border-radius:10px; box-shadow:0 40px 80px rgba(0,0,0,0.7);"></video>
+        </div>
+    </div>
+
     <div id="confirm-modal" class="modal-overlay" style="display:none;">
         <div class="glass-panel modal-content aura-modal" style="text-align: center;">
             <h2 id="confirm-title">¿Seguro?</h2>
