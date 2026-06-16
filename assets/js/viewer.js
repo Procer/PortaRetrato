@@ -1,12 +1,18 @@
 // Visor - Porta Retrato v1.1
-// Actualizado: 05-05-2026
 let playlist = [];
 let currentIndex = 0;
-let currentSettings = { duration: 10, animation: 'fade', clock_style: 'classic', clock_size: 'standard', date_format: 'full' };
+let currentSettings = { duration: 10, animation: 'fade', clock_style: 'classic', clock_size: 'standard', date_format: 'full', quick_show_duration: 8 };
 let weatherConfig = { city: '', lat: '', lon: '', days: 3, hours: 6, icons: 'aura-glow' };
 let weatherData = null;
 let weatherCarouselIndex = 0;
 let weatherCarouselItems = [];
+let entryOverlayHidden = false;
+
+// Pase Rápido
+let quickShowPlaylist = [];
+let quickShowIndex = 0;
+let quickShowActive = false;
+let currentTimer = null;
 
 const display = document.getElementById('media-display');
 
@@ -15,12 +21,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadSettings();
     loadWeatherData();
     updateClock();
+    checkNightMode();
     setInterval(loadPlaylist, 60000);
     setInterval(loadSettings, 60000);
     setInterval(loadWeatherData, 1800000);
     setInterval(rotateWeather, 8000);
     setInterval(updateClock, 1000);
+    setInterval(checkNightMode, 60000);
+
+    window.addEventListener('offline', () => setConnectionState(false));
+    window.addEventListener('online', () => {
+        setConnectionState(true);
+        loadPlaylist();
+    });
+
+    document.addEventListener('click', () => {
+        if (!quickShowActive) startQuickShow();
+    });
 });
+
+function setConnectionState(online) {
+    const ind = document.getElementById('offline-indicator');
+    if (!ind) return;
+    if (online) {
+        ind.className = 'connection-online';
+        ind.innerHTML = '<i class="fas fa-wifi"></i><span>En línea</span>';
+    } else {
+        ind.className = 'connection-offline';
+        ind.innerHTML = '<i class="fas fa-triangle-exclamation"></i> Sin conexión';
+    }
+}
 
 function updateClock() {
     const now = new Date();
@@ -28,7 +58,7 @@ function updateClock() {
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const timeEl = document.getElementById('clock-time');
     if(timeEl) timeEl.innerText = `${hours}:${minutes}`;
-    
+
     let dateStr = "";
     const dayName = now.toLocaleDateString('es-ES', { weekday: 'long' });
     const dayNum = now.getDate();
@@ -43,12 +73,12 @@ function updateClock() {
         case 'numeric': dateStr = `${dayNum} / ${monthNum} / ${year}`; break;
         case 'short': dateStr = `${dayShort} ${dayNum} ${monthShort}`; break;
         case 'minimal': dateStr = `${dayName} ${dayNum}`; break;
-        default: dateStr = `${dayName} ${dayNum} de ${monthName} ${year}`; // full
+        default: dateStr = `${dayName} ${dayNum} de ${monthName} ${year}`;
     }
 
     const dateEl = document.getElementById('clock-date');
     if(dateEl) dateEl.innerText = dateStr;
-    
+
     const widget = document.getElementById('clock-widget');
     if(widget) widget.className = `clock-glass style-${currentSettings.clock_style} size-${currentSettings.clock_size}`;
 }
@@ -64,6 +94,10 @@ async function loadSettings() {
         currentSettings.clock_style = settings.clock_style || 'classic';
         currentSettings.clock_size = settings.clock_size || 'standard';
         currentSettings.date_format = settings.date_format || 'full';
+        currentSettings.night_mode_enabled = settings.night_mode_enabled || '0';
+        currentSettings.night_start = settings.night_start || '23:00';
+        currentSettings.night_end = settings.night_end || '07:00';
+        currentSettings.quick_show_duration = parseInt(settings.quick_show_duration) || 8;
 
         const prevLat = weatherConfig.weather_lat;
         const prevLon = weatherConfig.weather_lon;
@@ -109,24 +143,32 @@ function updateWeatherUI() {
     const currentT = Math.round(weatherData.current.temperature_2m);
     const todayMax = Math.round(weatherData.daily.temperature_2m_max[0]);
     const todayMin = Math.round(weatherData.daily.temperature_2m_min[0]);
-    
+
     nowTemp.innerHTML = `<div style="display:flex; flex-direction:column; align-items:flex-start;"><span>${currentT}°</span><small style="font-size:0.7rem; opacity:0.8; margin-top:2px;">MÁX ${todayMax}° MÍN ${todayMin}°</small></div>`;
     nowCity.innerText = weatherConfig.weather_city.split(',')[0].trim();
-    
+
     const iconStyle = weatherConfig.weather_icons;
     const imgStyle = getCustomFilter(iconStyle);
     nowIcon.innerHTML = `<img src="${getPremiumIconURL(weatherData.current.weather_code, iconStyle)}" onerror="this.src='${getPremiumIconURL(weatherData.current.weather_code, 'aura-glow')}'" style="width:58px; height:54px; ${imgStyle}">`;
-    
+
     weatherCarouselItems = [];
+    const _now = new Date();
+    const _pad = n => String(n).padStart(2, '0');
+    const _curStr = `${_now.getFullYear()}-${_pad(_now.getMonth()+1)}-${_pad(_now.getDate())}T${_pad(_now.getHours())}:00`;
+    let _startIdx = weatherData.hourly.time.findIndex(t => t >= _curStr);
+    if (_startIdx < 0) _startIdx = 0;
+    _startIdx++; // la hora actual ya se muestra como temperatura principal
+
     let hoursHtml = '<div style="display:flex; gap:20px;">';
-    for(let i=1; i<=parseInt(weatherConfig.weather_hours); i++) {
+    const _maxH = parseInt(weatherConfig.weather_hours);
+    for (let i = _startIdx; i < _startIdx + _maxH && i < weatherData.hourly.time.length; i++) {
         const time = new Date(weatherData.hourly.time[i]).getHours();
         const code = weatherData.hourly.weather_code[i];
         hoursHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow')}'" class="wi-icon" style="${imgStyle}"><span>${Math.round(weatherData.hourly.temperature_2m[i])}°</span><small>${time}:00</small></div>`;
     }
     hoursHtml += '</div>';
     weatherCarouselItems.push(hoursHtml);
-    
+
     const daysArr = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
     let daysHtml = '<div style="display:flex; gap:20px;">';
     for(let i=1; i<=parseInt(weatherConfig.weather_days); i++) {
@@ -138,7 +180,7 @@ function updateWeatherUI() {
     }
     daysHtml += '</div>';
     weatherCarouselItems.push(daysHtml);
-    
+
     widget.style.display = 'flex';
     weatherCarouselIndex = 0;
     rotateWeather();
@@ -171,7 +213,7 @@ function getPremiumIconURL(code, styleName) {
     else if (c >= 80 && c <= 82) name = 'rain';
     else if (c >= 95) name = 'thunderstorms';
     else name = 'cloudy';
-    let folder = 'fill'; 
+    let folder = 'fill';
     if (styleName === 'minimal-line') folder = 'line';
     if (styleName === 'neo-flat') folder = 'outline';
     if (styleName === 'vibrant-anim') folder = 'monochrome';
@@ -189,14 +231,18 @@ async function loadPlaylist() {
             if (playlist.length > 0) { if (isFirstLoad) { currentIndex = 0; showNext(); } }
             else { display.innerHTML = '<h2 class="no-content">No hay contenido activo</h2>'; }
         }
-    } catch (e) { console.error("Error playlist", e); }
+    } catch (e) {
+        console.error("Error playlist", e);
+        setConnectionState(false);
+    }
 }
 
 function showNext() {
+    if (quickShowActive) return;
     if (playlist.length === 0) return;
     const item = playlist[currentIndex];
     const FADE = 700;
-    const anim = currentSettings.animation || 'fade';
+    const anim = item.animacion_tipo || currentSettings.animation || 'fade';
 
     function enterState(el) {
         el.style.opacity = '0';
@@ -220,7 +266,7 @@ function showNext() {
     function reveal(newEl, onVisible) {
         enterState(newEl);
         display.appendChild(newEl);
-        void newEl.offsetHeight; // force reflow para activar la transición
+        void newEl.offsetHeight;
         activeState(newEl);
         setTimeout(() => {
             [...display.children].forEach(el => { if (el !== newEl) el.remove(); });
@@ -231,14 +277,17 @@ function showNext() {
     if (item.tipo === 'imagen') {
         const img = new Image();
         img.src = item.ruta;
-        const duration = (currentSettings.duration || 10) * 1000;
-        let timer;
+        const imgDur = parseInt(item.duracion_img);
+        const albumDur = parseInt(item.album_duracion);
+        const duration = ((imgDur > 0 ? imgDur : albumDur > 0 ? albumDur : currentSettings.duration) || 10) * 1000;
 
-        img.onerror = () => { clearTimeout(timer); advanceIndex(); showNext(); };
+        img.onerror = () => { clearTimeout(currentTimer); advanceIndex(); showNext(); };
 
         const show = () => {
             reveal(img, () => {
-                timer = setTimeout(() => { advanceIndex(); showNext(); }, duration);
+                hideEntryOverlay();
+                preloadNext();
+                currentTimer = setTimeout(() => { advanceIndex(); showNext(); }, duration);
             });
         };
 
@@ -260,6 +309,8 @@ function showNext() {
         const show = () => {
             if (shown) return;
             shown = true;
+            hideEntryOverlay();
+            preloadNext();
             void video.offsetHeight;
             activeState(video);
             setTimeout(() => {
@@ -268,7 +319,7 @@ function showNext() {
         };
 
         video.addEventListener('canplay', show, { once: true });
-        setTimeout(show, 1500); // fallback si canplay tarda o no dispara
+        setTimeout(show, 1500);
 
     } else {
         advanceIndex();
@@ -279,4 +330,123 @@ function showNext() {
 function advanceIndex() {
     currentIndex++;
     if (currentIndex >= playlist.length) { currentIndex = 0; }
+}
+
+function hideEntryOverlay() {
+    if (entryOverlayHidden) return;
+    entryOverlayHidden = true;
+    const overlay = document.getElementById('entry-overlay');
+    if (overlay) {
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 900);
+    }
+}
+
+function preloadNext() {
+    if (playlist.length <= 1) return;
+    const next = playlist[(currentIndex + 1) % playlist.length];
+    if (next && next.tipo === 'imagen') new Image().src = next.ruta;
+}
+
+function checkNightMode() {
+    const enabled = currentSettings.night_mode_enabled === '1';
+    const overlay = document.getElementById('night-overlay');
+    if (!overlay) return;
+    if (!enabled) { overlay.style.opacity = '0'; return; }
+    const now = new Date();
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const [sh, sm] = (currentSettings.night_start || '23:00').split(':').map(Number);
+    const [eh, em] = (currentSettings.night_end || '07:00').split(':').map(Number);
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+    const isNight = start > end ? (cur >= start || cur < end) : (cur >= start && cur < end);
+    overlay.style.opacity = isNight ? '1' : '0';
+}
+
+// ─── PASE RÁPIDO ─────────────────────────────────────────────────────────────
+
+async function startQuickShow() {
+    if (quickShowActive) return;
+    try {
+        const res = await fetch('backend/api.php?action=get_quick_show_media');
+        const data = await res.json();
+        if (!data || data.error || data.length === 0) return;
+
+        const now = new Date();
+        const today = now.getDay(); // 0=dom … 6=sáb (igual que Date.getDay())
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+        // Necesitamos el horario de hoy para saber si "ya pasó" o "no llegó aún"
+        const todayItems = data.filter(item => parseInt(item.dia_semana) === today);
+        if (todayItems.length === 0) return; // sin imágenes para hoy → silencioso
+
+        const [h, m] = (todayItems[0].horario || '08:00').split(':').map(Number);
+        const horarioMinutes = h * 60 + m;
+
+        // Si ya pasó la hora de hoy → mostrar las del día siguiente
+        const targetDay = nowMinutes >= horarioMinutes ? (today + 1) % 7 : today;
+
+        const filtered = data.filter(item => parseInt(item.dia_semana) === targetDay);
+        if (filtered.length === 0) return; // sin imágenes para el día target → silencioso
+
+        quickShowPlaylist = filtered;
+        quickShowIndex = 0;
+        quickShowActive = true;
+        clearTimeout(currentTimer);
+        showQuickItem();
+        hideWidgets();
+    } catch(e) { console.error('Quick show error', e); }
+}
+
+function showQuickItem() {
+    if (!quickShowActive) return;
+    if (quickShowIndex >= quickShowPlaylist.length) {
+        endQuickShow();
+        return;
+    }
+    const item = quickShowPlaylist[quickShowIndex];
+    const duration = (currentSettings.quick_show_duration || 8) * 1000;
+    const FADE = 700;
+
+    const img = new Image();
+    img.src = item.ruta;
+    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity ${FADE}ms ease`;
+
+    img.onerror = () => { quickShowIndex++; showQuickItem(); };
+
+    const show = () => {
+        display.appendChild(img);
+        void img.offsetHeight;
+        img.style.opacity = '1';
+        setTimeout(() => {
+            [...display.children].forEach(el => { if (el !== img) el.remove(); });
+            quickShowIndex++;
+            currentTimer = setTimeout(showQuickItem, duration);
+        }, FADE);
+    };
+
+    if (img.complete && img.naturalWidth > 0) show();
+    else img.onload = show;
+}
+
+function endQuickShow() {
+    quickShowActive = false;
+    quickShowPlaylist = [];
+    quickShowIndex = 0;
+    showWidgets();
+    showNext();
+}
+
+function hideWidgets() {
+    ['weather-widget', 'clock-widget'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.transition = 'opacity 0.5s ease'; el.style.opacity = '0'; el.style.pointerEvents = 'none'; }
+    });
+}
+
+function showWidgets() {
+    ['weather-widget', 'clock-widget'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
+    });
 }

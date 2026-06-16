@@ -142,6 +142,38 @@ body {
 
 .card:hover .overlay { opacity: 1; }
 
+.card.dragging {
+    opacity: 0.35;
+    box-shadow: none;
+    cursor: grabbing;
+}
+
+.card.drag-over {
+    box-shadow: 0 0 0 3px var(--accent), 0 8px 24px rgba(139,92,246,0.25);
+    transform: scale(1.03);
+}
+
+.drag-handle {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: rgba(255,255,255,0.85);
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 0.75rem;
+    opacity: 0;
+    transition: opacity 0.2s;
+    cursor: grab;
+    backdrop-filter: blur(6px);
+}
+
+.card:hover .drag-handle { opacity: 1; }
+
 /* Menú Inferior (Tab Bar) */
 .tab-bar {
     position: fixed;
@@ -216,6 +248,22 @@ body {
 }
 .aura-select-premium:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1); }
 
+.card-duration-badge {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background: rgba(139, 92, 246, 0.88);
+    color: white;
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 3px 7px;
+    border-radius: 8px;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+    z-index: 1;
+    letter-spacing: 0.5px;
+}
+
 .aura-input-simple {
     width: 100%; padding: 12px 15px; border-radius: 12px;
     border: 1px solid #e2e8f0; font-family: inherit; font-weight: 700;
@@ -225,3 +273,63 @@ body {
 .modal-body-scroll::-webkit-scrollbar { width: 6px; }
 .modal-body-scroll::-webkit-scrollbar-track { background: transparent; }
 .modal-body-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+
+/* ─── PASE RÁPIDO — cards con selector día/hora ─────────────────────────── */
+.qs-card-wrap {
+    background: white;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+    transition: box-shadow 0.3s ease;
+}
+.qs-thumb {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    cursor: pointer;
+}
+.qs-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.qs-thumb .overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 55%);
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+    padding: 10px;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.qs-thumb:hover .overlay { opacity: 1; }
+.qs-card-footer {
+    display: flex;
+    gap: 5px;
+    padding: 7px 8px 9px;
+    border-top: 1px solid #f1f5f9;
+}
+.qs-day-sel,
+.qs-hora-inp {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 4px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-family: inherit;
+    color: #0f172a;
+    background: #f8fafc;
+    text-align: center;
+    cursor: pointer;
+}
+.qs-day-sel:focus,
+.qs-hora-inp:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139,92,246,0.12);
+}

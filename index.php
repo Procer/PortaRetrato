@@ -10,6 +10,9 @@
     <link rel="stylesheet" href="assets/css/viewer.css">
 </head>
 <body>
+    <div id="entry-overlay"></div>
+    <div id="night-overlay"></div>
+    <div id="offline-indicator" class="connection-online"><i class="fas fa-wifi"></i><span>En línea</span></div>
     <div id="viewer-container">
         <!-- Widget Clima -->
         <div id="weather-widget" class="weather-glass" style="display:none;">

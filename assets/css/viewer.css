@@ -89,3 +89,15 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color:
 .weather-forecast-extra .weather-item { min-width: 80px; }
 .weather-forecast-extra .weather-item span { font-size: 1.9rem; }
 .weather-forecast-extra .weather-item small { font-size: 1.5rem; }
+
+/* OVERLAYS */
+#entry-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999; transition: opacity 0.9s ease; pointer-events: none; }
+#night-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; opacity: 0; transition: opacity 2s ease; pointer-events: none; z-index: 9998; }
+/* Badge de conexión: siempre visible — verde online, rojo offline */
+#offline-indicator { position: fixed; bottom: 30px; left: 30px; display: flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 14px; font-family: 'Inter', sans-serif; font-size: 0.78rem; font-weight: 700; backdrop-filter: blur(12px); z-index: 9997; transition: background 0.5s ease, color 0.5s ease, border-color 0.5s ease; }
+#offline-indicator.connection-online { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25); color: rgba(255,255,255,0.45); }
+#offline-indicator.connection-online i { color: rgba(34,197,94,0.7); font-size: 0.72rem; }
+#offline-indicator.connection-offline { background: rgba(239,68,68,0.9); border: 1px solid transparent; color: white; animation: pulseRed 2s infinite; }
+@keyframes pulseRed { 0%,100% { box-shadow: 0 4px 20px rgba(239,68,68,0.4); } 50% { box-shadow: 0 4px 30px rgba(239,68,68,0.7); } }
+
+/* Banner Pase Rápido */

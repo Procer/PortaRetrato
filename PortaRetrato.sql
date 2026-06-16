@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS `settings` (
 DELETE FROM `settings`;
 INSERT INTO `settings` (`clave`, `valor`) VALUES
 	('clock_size', 'standard'),
-	('clock_style', 'blueprint-blue'),
+	('clock_style', 'v-1'),
 	('date_format', 'full'),
 	('weather_city', 'Zárate, Buenos Aires'),
 	('weather_days', '4'),

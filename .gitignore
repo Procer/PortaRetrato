@@ -11,3 +11,7 @@ node_modules/
 *.tmp
 .DS_Store
 Thumbs.db
+.gstack/
+# Claude Code y temporales locales
+.claude/
+clean_temp/

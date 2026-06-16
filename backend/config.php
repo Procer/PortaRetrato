@@ -3,6 +3,9 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
 
+// CONTRASEÑA DE GESTIÓN — cambiá este valor antes de subir al servidor
+define('GESTION_PASSWORD', 'portaretrato2025');
+
 // CONFIGURACIÓN DE BASE DE DATOS DINÁMICA
 // Detecta si estamos en localhost (Laragon) o en producción (Hosting)
 if ($_SERVER['HTTP_HOST'] == 'localhost' || $_SERVER['REMOTE_ADDR'] == '127.0.0.1') {

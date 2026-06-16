@@ -29,12 +29,20 @@ try {
 
         case 'update_album_settings':
             $data = json_decode(file_get_contents('php://input'), true);
-            $id = $data['id'] ?? 0;
-            $duracion = $data['duracion'] ?? 10;
-            $animacion = $data['animacion'] ?? 'fade';
-            
+            $id = (int)($data['id'] ?? 0);
+            $duracion = (isset($data['duracion']) && (int)$data['duracion'] > 0) ? (int)$data['duracion'] : null;
+            $animacion = (isset($data['animacion']) && $data['animacion'] !== '') ? $data['animacion'] : null;
             $stmt = $pdo->prepare("UPDATE albums SET duracion_default = ?, animacion_tipo = ? WHERE id = ?");
             $stmt->execute([$duracion, $animacion, $id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'update_media_duration':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $id = (int)($data['id'] ?? 0);
+            $duracion = (isset($data['duracion']) && (int)$data['duracion'] > 0) ? (int)$data['duracion'] : null;
+            $stmt = $pdo->prepare("UPDATE media SET duracion_img = ? WHERE id = ?");
+            $stmt->execute([$duracion, $id]);
             echo json_encode(['success' => true]);
             break;
 
@@ -69,6 +77,15 @@ try {
             $pdo->query("UPDATE albums SET activo = 0");
             $stmt = $pdo->prepare("UPDATE albums SET activo = 1 WHERE id = ?");
             $stmt->execute([$id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'reorder_media':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $stmt = $pdo->prepare("UPDATE media SET orden = ? WHERE id = ?");
+            foreach ($data as $item) {
+                $stmt->execute([(int)$item['orden'], (int)$item['id']]);
+            }
             echo json_encode(['success' => true]);
             break;
 
@@ -120,6 +137,47 @@ try {
             // Borrar el álbum (el CASCADE de la BD borraría los registros de media)
             $stmt = $pdo->prepare("DELETE FROM albums WHERE id = ?");
             $stmt->execute([$id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'get_quick_show_media':
+            $stmt = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC");
+            echo json_encode($stmt->fetchAll());
+            break;
+
+        case 'delete_quick_show_media':
+            $id = (int)($_GET['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT ruta FROM quick_show_media WHERE id = ?");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch();
+            if ($row) {
+                $full_path = '../' . $row['ruta'];
+                if (file_exists($full_path)) unlink($full_path);
+                $stmt = $pdo->prepare("DELETE FROM quick_show_media WHERE id = ?");
+                $stmt->execute([$id]);
+            }
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'clear_quick_show':
+            $stmt = $pdo->query("SELECT ruta FROM quick_show_media");
+            foreach ($stmt->fetchAll() as $row) {
+                $full_path = '../' . $row['ruta'];
+                if (file_exists($full_path)) unlink($full_path);
+            }
+            $pdo->query("DELETE FROM quick_show_media");
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'update_quick_show_media':
+            $id         = (int)($_POST['id'] ?? 0);
+            $dia_semana = (int)($_POST['dia_semana'] ?? 1);
+            $horario    = $_POST['horario'] ?? '08:00';
+            if ($id <= 0) { echo json_encode(['error' => 'ID inválido']); break; }
+            if ($dia_semana < 0 || $dia_semana > 6) { echo json_encode(['error' => 'Día inválido']); break; }
+            if (!preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horario)) { echo json_encode(['error' => 'Horario inválido']); break; }
+            $stmt = $pdo->prepare("UPDATE quick_show_media SET dia_semana = ?, horario = ? WHERE id = ?");
+            $stmt->execute([$dia_semana, $horario, $id]);
             echo json_encode(['success' => true]);
             break;
 

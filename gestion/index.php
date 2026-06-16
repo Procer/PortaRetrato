@@ -1,3 +1,11 @@
+<?php
+require_once '../backend/config.php';
+session_start();
+if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
+    header('Location: login.php');
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -24,10 +32,12 @@
                     <button onclick="openGeneralSettingsModal()" class="btn-action-round" title="Configurar Slide"><i class="fas fa-sliders"></i></button>
                     <button onclick="openClockModal()" class="btn-action-round" title="Configurar Reloj"><i class="fas fa-clock"></i></button>
                     <button onclick="openWeatherModal()" class="btn-action-round" title="Configurar Clima"><i class="fas fa-cloud-sun"></i></button>
+                    <a href="logout.php" class="btn-action-round" title="Cerrar sesión" style="color:#94a3b8; text-decoration:none;"><i class="fas fa-right-from-bracket"></i></a>
                 </div>
             </div>
             
             <div id="album-quick-actions" class="header-right" style="display:none; gap:12px;">
+                <button onclick="openAlbumSettingsModal()" class="btn-action-round" title="Ajustes del Álbum"><i class="fas fa-sliders"></i></button>
                 <button onclick="setActiveAlbum(currentAlbumId, currentAlbumName)" class="btn-action-round aura-btn-success" title="Lanzar al Visor"><i class="fas fa-rocket"></i></button>
                 <button onclick="emptyAlbum()" class="btn-action-round aura-btn-warning" title="Vaciar Álbum"><i class="fas fa-broom"></i></button>
                 <button onclick="deleteAlbum()" class="btn-action-round aura-btn-danger" title="Eliminar Álbum"><i class="fas fa-folder-minus"></i></button>
@@ -43,6 +53,8 @@
     <nav class="tab-bar">
         <div class="tab-item active" onclick="location.reload()" title="Ver todos"><i class="fas fa-grip"></i></div>
         <div id="main-upload-btn" class="btn-add aura-gradient-bg" onclick="openUploadModal()" title="Subir"><i class="fas fa-cloud-arrow-up"></i></div>
+        <div class="tab-item" onclick="openQuickShowModal()" title="Pase Rápido"><i class="fas fa-bolt"></i></div>
+        <div class="tab-item" onclick="togglePreviewModal()" title="Vista previa inline"><i class="fas fa-eye"></i></div>
         <div class="tab-item" onclick="window.open('../', '_blank')" title="Ver Visor"><i class="fas fa-tv"></i></div>
     </nav>
 
@@ -132,7 +144,26 @@
                     </select>
                 </div>
 
-                <button onclick="saveSlideOnly()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar Slide</button>
+                <div class="divider-aura"></div>
+
+                <p class="section-label">Modo Noche</p>
+                <div id="night-mode-control" class="segmented-control" style="width:fit-content;">
+                    <div class="segment-item selected" onclick="setSegmentValue('night-mode-val', '0', this)" data-value="0">APAGADO</div>
+                    <div class="segment-item" onclick="setSegmentValue('night-mode-val', '1', this)" data-value="1">ENCENDIDO</div>
+                </div>
+                <input type="hidden" id="night-mode-val" value="0">
+                <div style="display:flex; gap:10px; margin-top:15px;">
+                    <div style="flex:1;">
+                        <p class="section-label">Desde</p>
+                        <div class="input-wrapper"><i class="fas fa-moon"></i><input type="time" id="night-start-input" value="23:00"></div>
+                    </div>
+                    <div style="flex:1;">
+                        <p class="section-label">Hasta</p>
+                        <div class="input-wrapper"><i class="fas fa-sun"></i><input type="time" id="night-end-input" value="07:00"></div>
+                    </div>
+                </div>
+
+                <button onclick="saveSlideOnly()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar</button>
             </div>
         </div>
     </div>
@@ -144,6 +175,31 @@
             <div class="modal-section">
                 <p class="section-label">Ubicación</p>
                 <div class="input-wrapper"><i class="fas fa-location-dot"></i><input type="text" id="weather-city-input" placeholder="Zarate, Argentina"></div>
+
+                <p class="section-label" style="margin-top:20px;">Estilo de íconos</p>
+                <div class="weather-icon-style-grid">
+                    <div class="style-card weather-icon-card" onclick="selectWeatherStyle('aura-glow', this)" data-value="aura-glow">
+                        <div class="wis-preview"><img src="https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/fill/all/partly-cloudy-day.svg" style="width:34px;height:34px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.35));"></div>
+                        <span>Glow</span>
+                    </div>
+                    <div class="style-card weather-icon-card" onclick="selectWeatherStyle('neo-flat', this)" data-value="neo-flat">
+                        <div class="wis-preview"><img src="https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/outline/all/partly-cloudy-day.svg" style="width:34px;height:34px;"></div>
+                        <span>Flat</span>
+                    </div>
+                    <div class="style-card weather-icon-card" onclick="selectWeatherStyle('minimal-line', this)" data-value="minimal-line">
+                        <div class="wis-preview"><img src="https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/line/all/partly-cloudy-day.svg" style="width:34px;height:34px;filter:brightness(0) invert(1);"></div>
+                        <span>Línea</span>
+                    </div>
+                    <div class="style-card weather-icon-card" onclick="selectWeatherStyle('vibrant-anim', this)" data-value="vibrant-anim">
+                        <div class="wis-preview"><img src="https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/monochrome/all/partly-cloudy-day.svg" style="width:34px;height:34px;filter:sepia(1) saturate(3) hue-rotate(320deg) brightness(1.2);"></div>
+                        <span>Vibrante</span>
+                    </div>
+                    <div class="style-card weather-icon-card" onclick="selectWeatherStyle('glassmorphism', this)" data-value="glassmorphism">
+                        <div class="wis-preview"><img src="https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/fill/all/partly-cloudy-day.svg" style="width:34px;height:34px;filter:opacity(0.7) drop-shadow(0 0 6px rgba(255,255,255,0.6));"></div>
+                        <span>Glass</span>
+                    </div>
+                </div>
+                <input type="hidden" id="weather-icons-style" value="neo-flat">
 
                 <p class="section-label" style="margin-top:20px;">Tamaño de temperatura actual</p>
                 <div id="weather-size-control" class="segmented-control">
@@ -223,12 +279,124 @@
         </div>
     </div>
 
+    <!-- MODAL DURACIÓN POR FOTO -->
+    <div id="media-duration-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-panel modal-content aura-modal" style="max-width:360px;">
+            <button class="close-btn" onclick="closeModal('media-duration-modal')"><i class="fas fa-times"></i></button>
+            <div class="modal-header"><h2>Duración de la foto</h2></div>
+            <div class="modal-section">
+                <p class="section-label">Segundos (0 = usar duración del álbum o global)</p>
+                <div class="input-wrapper">
+                    <i class="fas fa-clock"></i>
+                    <input type="number" id="media-duration-input" min="0" max="300" placeholder="0">
+                </div>
+                <input type="hidden" id="media-duration-id">
+                <button onclick="saveMediaDuration()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL AJUSTES DE ÁLBUM -->
+    <div id="album-settings-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-panel modal-content aura-modal" style="max-width:420px;">
+            <button class="close-btn" onclick="closeModal('album-settings-modal')"><i class="fas fa-times"></i></button>
+            <div class="modal-header"><h2>Ajustes del Álbum</h2></div>
+            <div class="modal-section">
+                <p class="section-label">Duración por defecto (segundos)</p>
+                <p style="font-size:0.75rem; color:#94a3b8; margin-bottom:8px;">0 = usar duración global</p>
+                <div class="input-wrapper">
+                    <i class="fas fa-clock"></i>
+                    <input type="number" id="album-duration-input" min="0" max="300" placeholder="0">
+                </div>
+
+                <p class="section-label" style="margin-top:20px;">Animación del Álbum</p>
+                <p style="font-size:0.75rem; color:#94a3b8; margin-bottom:8px;">Sin selección = usar animación global</p>
+                <div class="input-wrapper">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <select id="album-animation-select" class="aura-select-premium" style="padding-left:45px;">
+                        <option value="">— Global —</option>
+                        <option value="fade">Desvanecer (Fade)</option>
+                        <option value="slide">Deslizar (Slide)</option>
+                        <option value="zoom">Zoom</option>
+                        <option value="none">Sin animación</option>
+                    </select>
+                </div>
+
+                <button onclick="saveAlbumSettings()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL VISTA PREVIA -->
+    <div id="preview-modal" class="modal-overlay" style="display:none; background:rgba(0,0,0,0.88); backdrop-filter:blur(12px); padding:0; align-items:center; justify-content:center;" onclick="closePreview()">
+        <div onclick="event.stopPropagation()" style="width:92vw; max-width:900px; border-radius:16px; overflow:hidden; box-shadow:0 40px 80px rgba(0,0,0,0.6); position:relative;">
+            <button onclick="closePreview()" style="position:absolute; top:10px; right:10px; z-index:10; background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); width:36px; height:36px; border-radius:50%; color:white; cursor:pointer; font-size:0.9rem; backdrop-filter:blur(8px);" onmouseover="this.style.background='rgba(255,255,255,0.28)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'"><i class="fas fa-times"></i></button>
+            <iframe id="viewer-iframe" src="" style="width:100%; aspect-ratio:16/9; border:none; display:block;"></iframe>
+        </div>
+    </div>
+
     <!-- LIGHTBOX -->
     <div id="lightbox-modal" class="modal-overlay" style="display:none; background:rgba(0,0,0,0.96); backdrop-filter:blur(24px); padding:0; align-items:center; justify-content:center;" onclick="closeLightbox()">
         <button onclick="closeLightbox()" style="position:fixed; top:20px; right:20px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15); width:44px; height:44px; border-radius:50%; color:white; cursor:pointer; font-size:1rem; z-index:3001; backdrop-filter:blur(10px); transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'"><i class="fas fa-times"></i></button>
         <div onclick="event.stopPropagation()" style="display:flex; align-items:center; justify-content:center;">
             <img id="lightbox-img" src="" alt="" style="display:none; max-width:92vw; max-height:92vh; object-fit:contain; border-radius:10px; box-shadow:0 40px 80px rgba(0,0,0,0.7);">
             <video id="lightbox-video" src="" controls style="display:none; max-width:92vw; max-height:92vh; border-radius:10px; box-shadow:0 40px 80px rgba(0,0,0,0.7);"></video>
+        </div>
+    </div>
+
+    <!-- MODAL PASE RÁPIDO -->
+    <div id="quick-show-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-panel modal-content aura-modal" style="max-width:520px;">
+            <button class="close-btn" onclick="closeModal('quick-show-modal')"><i class="fas fa-times"></i></button>
+            <div class="modal-header">
+                <h2><i class="fas fa-bolt" style="color:var(--accent); font-size:1rem; margin-right:6px;"></i> Pase Rápido</h2>
+            </div>
+            <div class="modal-section" style="max-height:65vh; overflow-y:auto; padding-right:8px;">
+
+                <div style="background:#f8fafc; border-left:3px solid var(--accent); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.78rem; color:#475569; line-height:1.6;">
+                    <strong style="color:#0f172a; display:block; margin-bottom:4px;"><i class="fas fa-circle-info" style="margin-right:6px; color:var(--accent);"></i>Cómo funciona</strong>
+                    Se activa al hacer <strong>clic izquierdo</strong> en el portarretratos. Cada imagen tiene un <strong>día y un horario</strong> asignado.<br>
+                    • Si la hora actual es <em>anterior</em> al horario → muestra las imágenes del día actual.<br>
+                    • Si la hora actual <em>ya pasó</em> ese horario → muestra las del día siguiente.<br>
+                    Al terminar el pase vuelve al álbum activo automáticamente.
+                </div>
+
+                <p class="section-label">Imágenes del pase</p>
+                <div class="upload-area-modern" onclick="document.getElementById('qs-file-input').click()" style="margin-bottom:14px;">
+                    <i class="fas fa-bolt"></i>
+                    <p>Agregar imágenes</p>
+                    <input type="file" id="qs-file-input" multiple accept="image/*" hidden>
+                </div>
+
+                <div id="qs-progress-wrapper" style="display:none; margin-bottom:14px;">
+                    <progress id="qs-upload-progress" value="0" max="100" style="width:100%; height:8px; accent-color:var(--accent);"></progress>
+                    <p id="qs-progress-text" style="font-size:0.7rem; text-align:center; color:var(--accent); margin-top:5px; font-weight:700;">SUBIENDO...</p>
+                </div>
+
+                <div id="qs-grid" class="media-grid" style="gap:10px;"></div>
+
+                <div id="qs-empty" style="text-align:center; padding:35px 20px; color:#94a3b8; display:none;">
+                    <i class="fas fa-bolt" style="font-size:2.5rem; margin-bottom:14px; opacity:0.2; display:block;"></i>
+                    <p style="font-size:0.85rem;">No hay imágenes en el pase rápido</p>
+                </div>
+
+                <div class="divider-aura"></div>
+
+                <p class="section-label">Duración por foto (segundos)</p>
+                <div style="display:flex; gap:10px; align-items:center; margin-bottom:4px;">
+                    <div class="input-wrapper" style="flex:1; margin-bottom:0;">
+                        <i class="fas fa-clock"></i>
+                        <input type="number" id="qs-duration-input" min="1" max="120" placeholder="8">
+                    </div>
+                    <button onclick="saveQsDuration()" class="btn-primary-aura" style="width:auto; padding:12px 20px; background:var(--accent-gradient); flex-shrink:0;">Guardar</button>
+                </div>
+
+                <div id="qs-footer" style="display:none; margin-top:16px; padding-top:14px; border-top:1px solid #f1f5f9;">
+                    <button onclick="clearQuickShow()" class="btn-primary-aura" style="background:#f1f5f9; color:#ef4444; font-size:0.8rem;">
+                        <i class="fas fa-trash-can" style="margin-right:6px;"></i> Vaciar pase rápido
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -273,6 +441,13 @@
         .segment-item:hover { color: var(--accent); }
         .segment-item.selected { background: white; color: var(--accent); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
         .divider-aura { height: 1px; background: #f1f5f9; margin: 25px 0; }
+
+        /* SELECTOR ÍCONOS CLIMA */
+        .weather-icon-style-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 10px; }
+        .weather-icon-card { padding: 8px 4px 6px; gap: 6px; flex-direction: column; }
+        .wis-preview { background: #0f172a; border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: center; width: 100%; }
+        .weather-icon-card span { font-size: 0.6rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .weather-icon-card.selected span { color: var(--accent); }
 
         /* PREVIEW WIDGET CLIMA */
         .weather-preview-wrap { margin: 15px 0 10px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
