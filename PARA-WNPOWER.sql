@@ -1,43 +1,13 @@
 -- ============================================================
---  PortaRetrato — Script de instalación / actualización
---  Ejecutar UNA SOLA VEZ en phpMyAdmin del hosting.
---  Es seguro correrlo aunque la BD ya tenga datos: no borra nada.
+--  PortaRetrato — Script de actualización para WNPower
+--  Ejecutar UNA SOLA VEZ en phpMyAdmin.
+--  Solo agrega lo que no existe: NO borra ni modifica datos.
 -- ============================================================
 
--- Si WNPower ya creó la BD, estas dos líneas no hacen falta
--- pero tampoco rompen nada si las dejás.
-CREATE DATABASE IF NOT EXISTS portaretrato
-    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE portaretrato;
-
 -- ------------------------------------------------------------
--- Tablas base
+-- 1. Nueva tabla para el Pase Rápido
+--    (si ya existe, no hace nada)
 -- ------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS albums (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    nombre          VARCHAR(100) NOT NULL,
-    activo          TINYINT(1) DEFAULT 0,
-    fecha_creacion  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    duracion_default INT DEFAULT 10,
-    animacion_tipo  VARCHAR(20) DEFAULT 'fade'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS media (
-    id           INT AUTO_INCREMENT PRIMARY KEY,
-    album_id     INT NOT NULL,
-    ruta         VARCHAR(255) NOT NULL,
-    tipo         ENUM('imagen','video') NOT NULL,
-    duracion_img INT DEFAULT 10,
-    orden        INT DEFAULT 0,
-    fecha_subida TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS settings (
-    clave VARCHAR(50) NOT NULL PRIMARY KEY,
-    valor TEXT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS quick_show_media (
     id           INT AUTO_INCREMENT PRIMARY KEY,
@@ -48,10 +18,11 @@ CREATE TABLE IF NOT EXISTS quick_show_media (
     horario      TIME NOT NULL DEFAULT '08:00:00',
     fecha_subida DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
--- dia_semana: 0=dom, 1=lun, 2=mar, 3=mié, 4=jue, 5=vie, 6=sáb (igual que JS Date.getDay())
+-- dia_semana: 0=dom, 1=lun, 2=mar, 3=mié, 4=jue, 5=vie, 6=sáb
 
 -- ------------------------------------------------------------
--- Columnas nuevas en albums (seguro si ya existen)
+-- 2. Columnas nuevas en albums
+--    (solo se agregan si no existen)
 -- ------------------------------------------------------------
 
 SET @q = (SELECT IF(COUNT(*) = 0,
@@ -69,34 +40,20 @@ SET @q = (SELECT IF(COUNT(*) = 0,
 PREPARE stmt FROM @q; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ------------------------------------------------------------
--- Settings por defecto (no sobreescribe valores existentes)
+-- 3. Settings nuevos
+--    INSERT IGNORE = solo inserta si la clave no existe todavía
 -- ------------------------------------------------------------
 
 INSERT IGNORE INTO settings (clave, valor) VALUES
-    -- Reloj
-    ('clock_style',           'v-1'),
-    ('clock_size',            'standard'),
-    ('date_format',           'full'),
-    -- Clima
-    ('weather_city',          ''),
-    ('weather_lat',           ''),
-    ('weather_lon',           ''),
-    ('weather_days',          '4'),
-    ('weather_hours',         '4'),
-    ('weather_icons',         'neo-flat'),
-    ('weather_size',          'standard'),
-    ('weather_forecast_size', 'large'),
-    -- Modo noche
+    -- Modo noche (nuevo)
     ('night_mode_enabled',    '0'),
     ('night_start',           '23:00'),
     ('night_end',             '07:00'),
-    -- Pase rápido
-    ('quick_show_duration',   '8');
-
--- Corrige valor inválido 'blueprint-blue' si todavía está en la BD
-UPDATE settings SET valor = 'v-1' WHERE clave = 'clock_style' AND valor = 'blueprint-blue';
+    -- Pase rápido (nuevo)
+    ('quick_show_duration',   '8'),
+    -- Clima — por si falta alguno
+    ('weather_forecast_size', 'large');
 
 -- ============================================================
---  Listo. Este es el único script que necesitás ejecutar.
---  Los archivos migrate_*.sql son solo para migraciones locales.
+--  Listo. Tus datos existentes no se tocaron.
 -- ============================================================
