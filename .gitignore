@@ -15,3 +15,5 @@ Thumbs.db
 # Claude Code y temporales locales
 .claude/
 clean_temp/
+# Config con credenciales — cada entorno tiene el suyo
+backend/config.php
