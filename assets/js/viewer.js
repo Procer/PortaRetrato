@@ -410,7 +410,7 @@ function showQuickItem() {
 
     const img = new Image();
     img.src = item.ruta;
-    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity ${FADE}ms ease`;
+    img.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity ${FADE}ms ease`;
 
     img.onerror = () => { quickShowIndex++; showQuickItem(); };
 
