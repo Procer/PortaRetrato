@@ -1,8 +1,19 @@
 <?php
 header('Content-Type: application/json');
-// Activamos visualización para ver el error real si el try-catch falla
-ini_set('display_errors', 1); 
+ini_set('display_errors', 1);
 error_reporting(E_ALL);
+
+// Responde con ETag; si el cliente ya tiene la versión actual devuelve 304 sin cuerpo.
+function sendCachedJson(string $json): void {
+    $etag = '"' . md5($json) . '"';
+    header("ETag: $etag");
+    header("Cache-Control: no-cache");
+    if (trim($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === $etag) {
+        http_response_code(304);
+        exit;
+    }
+    echo $json;
+}
 
 try {
     require_once 'config.php';
@@ -17,7 +28,7 @@ try {
 
         case 'get_active_media':
             $stmt = $pdo->query("SELECT m.*, a.duracion_default as album_duracion, a.animacion_tipo FROM media m JOIN albums a ON m.album_id = a.id WHERE a.activo = 1 ORDER BY m.orden ASC");
-            echo json_encode($stmt->fetchAll());
+            sendCachedJson(json_encode($stmt->fetchAll()));
             break;
 
         case 'get_album_settings':
@@ -52,7 +63,7 @@ try {
             foreach ($stmt->fetchAll() as $row) {
                 $settings[$row['clave']] = $row['valor'];
             }
-            echo json_encode($settings);
+            sendCachedJson(json_encode($settings));
             break;
 
         case 'update_weather_settings':
@@ -142,7 +153,7 @@ try {
 
         case 'get_quick_show_media':
             $stmt = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC");
-            echo json_encode($stmt->fetchAll());
+            sendCachedJson(json_encode($stmt->fetchAll()));
             break;
 
         case 'delete_quick_show_media':

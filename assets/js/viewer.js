@@ -13,6 +13,14 @@ let quickShowPlaylist = [];
 let quickShowIndex = 0;
 let quickShowActive = false;
 let currentTimer = null;
+let quickShowCache = null;
+let quickShowCacheTs = 0;
+const QS_CACHE_TTL = 5 * 60 * 1000;
+
+// Cache de settings — se refresca máximo cada 5 min (cambian rarísima vez)
+let settingsCache = null;
+let settingsCacheTs = 0;
+const SETTINGS_CACHE_TTL = 5 * 60 * 1000;
 
 const display = document.getElementById('media-display');
 
@@ -23,7 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateClock();
     checkNightMode();
     setInterval(loadPlaylist, 60000);
-    setInterval(loadSettings, 60000);
+    setInterval(loadSettings, 300000); // settings cambian rarísimo → cada 5 min
     setInterval(loadWeatherData, 1800000);
     setInterval(rotateWeather, 8000);
     setInterval(updateClock, 1000);
@@ -85,8 +93,17 @@ function updateClock() {
 
 async function loadSettings() {
     try {
-        const setRes = await fetch('backend/api.php?action=get_weather_settings');
-        const settings = await setRes.json();
+        const now = Date.now();
+        let settings;
+        if (settingsCache && (now - settingsCacheTs) < SETTINGS_CACHE_TTL) {
+            settings = settingsCache;
+        } else {
+            const setRes = await fetch('backend/api.php?action=get_weather_settings');
+            settings = await setRes.json();
+            if (settings.error) return;
+            settingsCache = settings;
+            settingsCacheTs = now;
+        }
         if (settings.error) return;
 
         currentSettings.duration = parseInt(settings.slide_duration) || 10;
@@ -368,13 +385,20 @@ function checkNightMode() {
 async function startQuickShow() {
     if (quickShowActive) return;
     try {
-        const res = await fetch('backend/api.php?action=get_quick_show_media');
-        const data = await res.json();
-        if (!data || data.error || data.length === 0) return;
+        const now = Date.now();
+        let data = quickShowCache;
+        if (!data || (now - quickShowCacheTs) > QS_CACHE_TTL) {
+            const res = await fetch('backend/api.php?action=get_quick_show_media');
+            data = await res.json();
+            if (!data || data.error) return;
+            quickShowCache = data;
+            quickShowCacheTs = now;
+        }
+        if (data.length === 0) return;
 
-        const now = new Date();
-        const today = now.getDay(); // 0=dom … 6=sáb (igual que Date.getDay())
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        const nowDate = new Date();
+        const today = nowDate.getDay(); // 0=dom … 6=sáb (igual que Date.getDay())
+        const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
 
         // Necesitamos el horario de hoy para saber si "ya pasó" o "no llegó aún"
         const todayItems = data.filter(item => parseInt(item.dia_semana) === today);
@@ -433,6 +457,7 @@ function endQuickShow() {
     quickShowActive = false;
     quickShowPlaylist = [];
     quickShowIndex = 0;
+    // quickShowCache se conserva — próximo click no toca la red
     showWidgets();
     showNext();
 }
