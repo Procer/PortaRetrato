@@ -398,21 +398,40 @@ async function startQuickShow() {
         if (data.length === 0) return;
 
         const nowDate = new Date();
-        const today = nowDate.getDay(); // 0=dom … 6=sáb (igual que Date.getDay())
+        const today = nowDate.getDay(); // 0=dom … 6=sáb
         const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
 
-        // Necesitamos el horario de hoy para saber si "ya pasó" o "no llegó aún"
-        const todayItems = data.filter(item => parseInt(item.dia_semana) === today);
-        if (todayItems.length === 0) return; // sin imágenes para hoy → silencioso
+        // Buscar el próximo día con imágenes (desde hoy hacia adelante hasta 7 días)
+        let targetDay = null;
+        for (let offset = 0; offset < 7; offset++) {
+            const checkDay = (today + offset) % 7;
+            const checkItems = data.filter(item => parseInt(item.dia_semana) === checkDay);
+            if (checkItems.length === 0) continue;
 
-        const [h, m] = (todayItems[0].horario || '08:00').split(':').map(Number);
-        const horarioMinutes = h * 60 + m;
+            if (offset === 0) {
+                // Para hoy, verificar si el horario ya pasó
+                const [h, m] = (checkItems[0].horario || '08:00').split(':').map(Number);
+                if (nowMinutes >= h * 60 + m) continue; // ya pasó → buscar siguiente día
+            }
+            targetDay = checkDay;
+            break;
+        }
 
-        // Si ya pasó la hora de hoy → mostrar las del día siguiente
-        const targetDay = nowMinutes >= horarioMinutes ? (today + 1) % 7 : today;
+        // Si todos los horarios de la semana pasaron, tomar el primer día disponible (vuelta al inicio)
+        if (targetDay === null) {
+            for (let offset = 0; offset < 7; offset++) {
+                const checkDay = (today + offset) % 7;
+                if (data.some(item => parseInt(item.dia_semana) === checkDay)) {
+                    targetDay = checkDay;
+                    break;
+                }
+            }
+        }
+
+        if (targetDay === null) return;
 
         const filtered = data.filter(item => parseInt(item.dia_semana) === targetDay);
-        if (filtered.length === 0) return; // sin imágenes para el día target → silencioso
+        if (filtered.length === 0) return;
 
         quickShowPlaylist = filtered;
         quickShowIndex = 0;
