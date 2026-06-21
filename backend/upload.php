@@ -8,19 +8,21 @@ const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
  * Comprime y redimensiona una imagen a máx 1920px.
  * Devuelve la extensión final usada ('webp' o 'jpg') o false si falla.
  */
-function compressImage(string $source, string $destNoExt): string|false {
+function compressImage(string $source, string $destNoExt) {
     $info = @getimagesize($source);
     if (!$info) return false;
 
     [$origW, $origH, $imgType] = $info;
 
-    $src = match ($imgType) {
-        IMAGETYPE_JPEG => imagecreatefromjpeg($source),
-        IMAGETYPE_PNG  => imagecreatefrompng($source),
-        IMAGETYPE_GIF  => imagecreatefromgif($source),
-        IMAGETYPE_WEBP => imagecreatefromwebp($source),
-        default        => false,
-    };
+    $creators = [
+        IMAGETYPE_JPEG => 'imagecreatefromjpeg',
+        IMAGETYPE_PNG  => 'imagecreatefrompng',
+        IMAGETYPE_GIF  => 'imagecreatefromgif',
+        IMAGETYPE_WEBP => 'imagecreatefromwebp',
+    ];
+    $creator = $creators[$imgType] ?? null;
+    if (!$creator) return false;
+    $src = $creator($source);
     if (!$src) return false;
 
     $maxDim = 1920;
