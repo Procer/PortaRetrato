@@ -16,6 +16,7 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     <link rel="stylesheet" href="../assets/css/gestion.css">
 </head>
 <body>
@@ -55,6 +56,7 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         <div id="main-upload-btn" class="btn-add aura-gradient-bg" onclick="openUploadModal()" title="Subir"><i class="fas fa-cloud-arrow-up"></i></div>
         <div class="tab-item" onclick="openQuickShowModal()" title="Pase Rápido"><i class="fas fa-bolt"></i></div>
         <div class="tab-item" onclick="togglePreviewModal()" title="Vista previa inline"><i class="fas fa-eye"></i></div>
+        <div class="tab-item" onclick="openQRModal()" title="Compartir enlace QR"><i class="fas fa-qrcode"></i></div>
         <div class="tab-item" onclick="window.open('../', '_blank')" title="Ver Visor"><i class="fas fa-tv"></i></div>
     </nav>
 
@@ -397,6 +399,20 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL QR -->
+    <div id="qr-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-panel modal-content aura-modal" style="max-width:360px; text-align:center;">
+            <button class="close-btn" onclick="closeModal('qr-modal')"><i class="fas fa-times"></i></button>
+            <h2 style="margin:0 0 6px;"><i class="fas fa-qrcode" style="color:var(--accent); font-size:1rem; margin-right:6px;"></i> Compartir acceso</h2>
+            <p style="font-size:0.78rem; color:#64748b; margin:0 0 20px;">Escanear desde el celular para abrir la gestión.</p>
+            <canvas id="qr-canvas" style="border-radius:14px; display:block; margin:0 auto;"></canvas>
+            <p id="qr-url" style="font-size:0.65rem; color:#94a3b8; word-break:break-all; margin:14px 0 0; padding:0 4px;"></p>
+            <button onclick="copyQRUrl()" class="btn-primary-aura" style="margin-top:16px; background:var(--accent-gradient); font-size:0.8rem; padding:12px;">
+                <i class="fas fa-copy" style="margin-right:8px;"></i> Copiar enlace
+            </button>
         </div>
     </div>
 

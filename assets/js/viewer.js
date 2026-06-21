@@ -141,12 +141,42 @@ async function loadSettings() {
 }
 
 async function loadWeatherData() {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherConfig.weather_lat}&longitude=${weatherConfig.weather_lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`;
     try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherConfig.weather_lat}&longitude=${weatherConfig.weather_lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`;
         const res = await fetch(url);
-        weatherData = await res.json();
-        updateWeatherUI();
-    } catch (e) { console.error("Error weather data", e); }
+        const data = await res.json();
+        if (data && data.current) {
+            weatherData = data;
+            localStorage.setItem('pr_weather_data', JSON.stringify(data));
+            localStorage.setItem('pr_weather_ts', Date.now());
+            hideWeatherStale();
+        } else {
+            throw new Error('Respuesta inválida');
+        }
+    } catch (e) {
+        console.warn("Clima sin conexión — cargando caché", e);
+        const cached = localStorage.getItem('pr_weather_data');
+        const ts = parseInt(localStorage.getItem('pr_weather_ts') || '0');
+        if (cached) {
+            weatherData = JSON.parse(cached);
+            showWeatherStale(ts);
+        }
+    }
+    if (weatherData) updateWeatherUI();
+}
+
+function showWeatherStale(ts) {
+    const el = document.getElementById('weather-stale');
+    if (!el) return;
+    const mins = Math.round((Date.now() - ts) / 60000);
+    const label = mins < 60 ? `hace ${mins} min` : `hace ${Math.round(mins / 60)} h`;
+    el.textContent = label;
+    el.style.display = 'block';
+}
+
+function hideWeatherStale() {
+    const el = document.getElementById('weather-stale');
+    if (el) el.style.display = 'none';
 }
 
 function updateWeatherUI() {

@@ -644,3 +644,28 @@ async function clearQuickShow() {
         await loadQsMedia();
     }, 'warning');
 }
+
+// ─── QR ──────────────────────────────────────────────────────────────────────
+
+let _qrUrl = '';
+
+function openQRModal() {
+    _qrUrl = window.location.href.split('?')[0];
+    document.getElementById('qr-url').textContent = _qrUrl;
+    document.getElementById('qr-modal').style.display = 'flex';
+
+    const canvas = document.getElementById('qr-canvas');
+    QRCode.toCanvas(canvas, _qrUrl, {
+        width: 220,
+        margin: 2,
+        color: { dark: '#0f172a', light: '#ffffff' }
+    });
+}
+
+function copyQRUrl() {
+    navigator.clipboard.writeText(_qrUrl).then(() => {
+        showNotification('Enlace copiado', 'fa-copy');
+    }).catch(() => {
+        showNotification('No se pudo copiar', 'fa-triangle-exclamation');
+    });
+}
