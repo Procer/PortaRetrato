@@ -8,8 +8,15 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color:
 #media-display { width: 100%; height: 100%; position: relative; overflow: hidden; }
 #media-display img, #media-display video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
 
+/* BARRA INFERIOR FULL-WIDTH */
+#bottom-right-widgets { position: fixed; bottom: 20px; left: 20px; right: 20px; z-index: 1000; }
+
+/* WIDGET UNIFICADO */
+.unified-glass { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 20px; padding: 14px 28px; color: white; font-family: 'Inter', sans-serif; display: flex; align-items: center; }
+
 /* RELOJ BASE */
-.clock-glass { position: fixed; bottom: 30px; right: 30px; z-index: 1000; backdrop-filter: blur(20px); border-radius: 28px; padding: 20px 30px; color: white; font-family: 'Inter', sans-serif; text-align: right; box-shadow: 0 10px 40px rgba(0,0,0,0.4); transition: all 0.5s ease; }
+.clock-glass { text-align: right; transition: all 0.5s ease; flex-shrink: 0; }
+.unified-glass .clock-glass { background: transparent !important; border: none !important; box-shadow: none !important; backdrop-filter: none !important; border-radius: 0 !important; padding: 0 !important; margin-left: auto; width: auto !important; height: auto !important; }
 #clock-time { line-height: 1; margin-bottom: 5px; letter-spacing: -1px; transition: all 0.5s; }
 #clock-date { font-weight: 600; opacity: 0.8; transition: all 0.5s; }
 
@@ -52,11 +59,11 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color:
 @keyframes psy { to { background-position: 300%; } }
 
 /* CLIMA */
-.weather-glass { position: fixed; top: 30px; right: 30px; z-index: 1000; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 24px; padding: 15px 25px; display: flex; align-items: center; gap: 20px; color: white; font-family: 'Inter', sans-serif; }
+.weather-section { display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0; overflow: hidden; }
 #now-temp { font-size: 2.2rem; font-weight: 800; line-height: 1; }
 #now-city { display: block; font-size: 0.8rem; opacity: 0.8; font-weight: 600; text-transform: uppercase; }
 .weather-divider { width: 1px; height: 40px; background: rgba(255,255,255,0.2); }
-.weather-carousel { display: flex; gap: 20px; }
+.weather-carousel { display: flex; gap: 20px; flex: 1; min-width: 0; overflow: hidden; }
 .weather-item { display: flex; flex-direction: column; align-items: center; min-width: 50px; }
 .weather-item span { font-size: 0.9rem; font-weight: 700; }
 .weather-item small { font-size: 0.7rem; opacity: 0.7; }
@@ -94,7 +101,7 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color:
 #entry-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999; transition: opacity 0.9s ease; pointer-events: none; }
 #night-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; opacity: 0; transition: opacity 2s ease; pointer-events: none; z-index: 9998; }
 /* Badge de conexión: siempre visible — verde online, rojo offline */
-#offline-indicator { position: fixed; bottom: 30px; left: 30px; display: flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 14px; font-family: 'Inter', sans-serif; font-size: 0.78rem; font-weight: 700; backdrop-filter: blur(12px); z-index: 9997; transition: background 0.5s ease, color 0.5s ease, border-color 0.5s ease; }
+#offline-indicator { position: fixed; top: 30px; right: 30px; display: flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 14px; font-family: 'Inter', sans-serif; font-size: 0.78rem; font-weight: 700; backdrop-filter: blur(12px); z-index: 9997; transition: background 0.5s ease, color 0.5s ease, border-color 0.5s ease; }
 #offline-indicator.connection-online { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25); color: rgba(255,255,255,0.45); }
 #offline-indicator.connection-online i { color: rgba(34,197,94,0.7); font-size: 0.72rem; }
 #offline-indicator.connection-offline { background: rgba(239,68,68,0.9); border: 1px solid transparent; color: white; animation: pulseRed 2s infinite; }

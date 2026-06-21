@@ -14,25 +14,26 @@
     <div id="night-overlay"></div>
     <div id="offline-indicator" class="connection-online"><i class="fas fa-wifi"></i><span>En línea</span></div>
     <div id="viewer-container">
-        <!-- Widget Clima -->
-        <div id="weather-widget" class="weather-glass" style="display:none;">
-            <div class="weather-now">
-                <div id="now-icon"></div>
-                <div class="now-info">
-                    <span id="now-temp">--°</span>
-                    <small id="now-city">Ciudad</small>
+        <!-- Barra inferior: clima + reloj en un solo renglón -->
+        <div id="bottom-right-widgets">
+            <div id="unified-widget" class="unified-glass">
+                <div id="weather-widget" class="weather-section" style="display:none;">
+                    <div class="weather-now">
+                        <div id="now-icon"></div>
+                        <div class="now-info">
+                            <span id="now-temp">--°</span>
+                            <small id="now-city">Ciudad</small>
+                        </div>
+                    </div>
+                    <div class="weather-divider"></div>
+                    <div id="weather-dynamic-section" class="weather-carousel"></div>
+                    <div class="weather-divider"></div>
+                </div>
+                <div id="clock-widget" class="clock-glass">
+                    <div id="clock-time">00:00</div>
+                    <div id="clock-date">Cargando fecha...</div>
                 </div>
             </div>
-            <div class="weather-divider"></div>
-            <div id="weather-dynamic-section" class="weather-carousel">
-                <!-- Se llenará dinámicamente -->
-            </div>
-        </div>
-
-        <!-- Widget Reloj -->
-        <div id="clock-widget" class="clock-glass">
-            <div id="clock-time">00:00</div>
-            <div id="clock-date">Cargando fecha...</div>
         </div>
 
         <!-- El contenido (img/video) se cargará aquí dinámicamente -->

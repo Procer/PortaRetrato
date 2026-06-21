@@ -77,11 +77,11 @@ function updateClock() {
     const monthShort = now.toLocaleDateString('es-ES', { month: 'short' }).toUpperCase();
 
     switch(currentSettings.date_format) {
-        case 'standard': dateStr = `${dayNum} de ${monthName}, ${year}`; break;
+        case 'standard': dateStr = `${dayNum} ${monthShort} ${year}`; break;
         case 'numeric': dateStr = `${dayNum} / ${monthNum} / ${year}`; break;
         case 'short': dateStr = `${dayShort} ${dayNum} ${monthShort}`; break;
-        case 'minimal': dateStr = `${dayName} ${dayNum}`; break;
-        default: dateStr = `${dayName} ${dayNum} de ${monthName} ${year}`;
+        case 'minimal': dateStr = `${dayShort} ${dayNum}`; break;
+        default: dateStr = `${dayShort} ${dayNum} ${monthShort} ${year}`;
     }
 
     const dateEl = document.getElementById('clock-date');
@@ -156,7 +156,8 @@ function updateWeatherUI() {
     const nowIcon = document.getElementById('now-icon');
     if(!widget || !weatherData) return;
 
-    widget.className = `weather-glass style-${weatherConfig.weather_icons} weather-size-${weatherConfig.weather_size} weather-forecast-${weatherConfig.weather_forecast_size}`;
+    const unified = document.getElementById('unified-widget');
+    if (unified) unified.className = `unified-glass weather-size-${weatherConfig.weather_size} weather-forecast-${weatherConfig.weather_forecast_size}`;
     const currentT = Math.round(weatherData.current.temperature_2m);
     const todayMax = Math.round(weatherData.daily.temperature_2m_max[0]);
     const todayMin = Math.round(weatherData.daily.temperature_2m_min[0]);
@@ -463,15 +464,11 @@ function endQuickShow() {
 }
 
 function hideWidgets() {
-    ['weather-widget', 'clock-widget'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) { el.style.transition = 'opacity 0.5s ease'; el.style.opacity = '0'; el.style.pointerEvents = 'none'; }
-    });
+    const el = document.getElementById('unified-widget');
+    if (el) { el.style.transition = 'opacity 0.5s ease'; el.style.opacity = '0'; el.style.pointerEvents = 'none'; }
 }
 
 function showWidgets() {
-    ['weather-widget', 'clock-widget'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
-    });
+    const el = document.getElementById('unified-widget');
+    if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
 }
