@@ -361,6 +361,7 @@ async function uploadFiles() {
 
     if (wrapper) wrapper.style.display = 'block';
     let uploaded = 0;
+    const failedNames = [];
 
     for (let i = 0; i < files.length; i++) {
         if (progressText) progressText.innerText = `SUBIENDO ${i + 1} / ${total}...`;
@@ -370,7 +371,7 @@ async function uploadFiles() {
         formData.append('media[]', files[i]);
 
         try {
-            await new Promise((resolve, reject) => {
+            const ok = await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '../backend/upload.php', true);
                 xhr.upload.onprogress = (e) => {
@@ -378,13 +379,20 @@ async function uploadFiles() {
                         progressBar.value = ((i + e.loaded / e.total) / total) * 100;
                     }
                 };
-                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error(xhr.status));
+                xhr.onload = () => {
+                    if (xhr.status !== 200) { reject(new Error(xhr.status)); return; }
+                    try {
+                        const resp = JSON.parse(xhr.responseText);
+                        resolve(resp.success && resp.uploaded > 0);
+                    } catch (e) { reject(e); }
+                };
                 xhr.onerror = reject;
                 xhr.send(formData);
             });
-            uploaded++;
+            if (ok) uploaded++; else failedNames.push(files[i].name);
         } catch (e) {
             console.error(`Error subiendo ${files[i].name}:`, e);
+            failedNames.push(files[i].name);
         }
 
         if (progressBar) progressBar.value = ((i + 1) / total) * 100;
@@ -397,7 +405,7 @@ async function uploadFiles() {
 
     const msg = uploaded === total
         ? `${total} archivo${total !== 1 ? 's' : ''} añadido${total !== 1 ? 's' : ''}`
-        : `${uploaded} de ${total} subidos (${total - uploaded} fallaron)`;
+        : `${uploaded} de ${total} subidos — fallaron: ${failedNames.join(', ')} (formato no soportado, ej. HEIC de iPhone)`;
     showNotification(msg, uploaded === total ? "fa-cloud-arrow-up" : "fa-triangle-exclamation");
     closeModal('upload-modal');
 }
@@ -595,13 +603,14 @@ async function uploadQuickShowFiles(input) {
     wrapper.style.display = 'block';
 
     let uploaded = 0;
+    const failedNames = [];
     for (let i = 0; i < files.length; i++) {
         if (progressText) progressText.innerText = `SUBIENDO ${i + 1} / ${files.length}...`;
         const formData = new FormData();
         formData.append('quick_show', '1');
         formData.append('media[]', files[i]);
         try {
-            await new Promise((resolve, reject) => {
+            const ok = await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '../backend/upload.php', true);
                 xhr.upload.onprogress = (e) => {
@@ -609,12 +618,21 @@ async function uploadQuickShowFiles(input) {
                         progressBar.value = ((i + e.loaded / e.total) / files.length) * 100;
                     }
                 };
-                xhr.onload = () => xhr.status === 200 ? resolve() : reject(new Error(xhr.status));
+                xhr.onload = () => {
+                    if (xhr.status !== 200) { reject(new Error(xhr.status)); return; }
+                    try {
+                        const resp = JSON.parse(xhr.responseText);
+                        resolve(resp.success && resp.uploaded > 0);
+                    } catch (e) { reject(e); }
+                };
                 xhr.onerror = reject;
                 xhr.send(formData);
             });
-            uploaded++;
-        } catch(e) { console.error(`Error subiendo ${files[i].name}:`, e); }
+            if (ok) uploaded++; else failedNames.push(files[i].name);
+        } catch(e) {
+            console.error(`Error subiendo ${files[i].name}:`, e);
+            failedNames.push(files[i].name);
+        }
         if (progressBar) progressBar.value = ((i + 1) / files.length) * 100;
     }
 
@@ -624,7 +642,7 @@ async function uploadQuickShowFiles(input) {
 
     const msg = uploaded === files.length
         ? `${uploaded} imagen${uploaded !== 1 ? 'es' : ''} añadida${uploaded !== 1 ? 's' : ''} al pase`
-        : `${uploaded} de ${files.length} subidas (${files.length - uploaded} fallaron)`;
+        : `${uploaded} de ${files.length} subidas — fallaron: ${failedNames.join(', ')} (formato no soportado, ej. HEIC de iPhone)`;
     showNotification(msg, uploaded === files.length ? 'fa-bolt' : 'fa-triangle-exclamation');
     await loadQsMedia();
 }

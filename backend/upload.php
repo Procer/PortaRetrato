@@ -78,8 +78,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $upload_dir = $is_quick_show ? '../uploads/quick_show/' : '../uploads/';
     if (!file_exists($upload_dir)) mkdir($upload_dir, 0777, true);
 
+    $uploaded = 0;
+    $failed   = [];
+
     foreach ($_FILES['media']['name'] as $key => $name) {
-        if ($_FILES['media']['error'][$key] !== UPLOAD_ERR_OK) continue;
+        if ($_FILES['media']['error'][$key] !== UPLOAD_ERR_OK) { $failed[] = $name; continue; }
 
         $tmp_name = $_FILES['media']['tmp_name'][$key];
         $ext      = strtolower(pathinfo($name, PATHINFO_EXTENSION));
@@ -87,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Rechazar videos que superen el límite
         if ($isVideo && $_FILES['media']['size'][$key] > VIDEO_MAX_BYTES) {
+            $failed[] = $name;
             continue;
         }
 
@@ -105,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $new_name    = $ok ? $base_name . '.' . $finalExt : null;
         }
 
-        if (!$ok || !$new_name) continue;
+        if (!$ok || !$new_name) { $failed[] = $name; continue; }
 
         if ($is_quick_show) {
             $ruta = 'uploads/quick_show/' . $new_name;
@@ -116,7 +120,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("INSERT INTO media (album_id, ruta, tipo) VALUES (?, ?, ?)");
             $stmt->execute([$album_id, 'uploads/' . $new_name, $type]);
         }
+        $uploaded++;
     }
 
-    echo json_encode(['success' => true]);
+    echo json_encode(['success' => true, 'uploaded' => $uploaded, 'failed' => $failed]);
 }

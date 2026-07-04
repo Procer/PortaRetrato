@@ -110,4 +110,10 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color:
 /* Badge clima desactualizado */
 #weather-stale { color: #fbbf24; font-weight: 700; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; }
 
+/* Badge de alerta de clima severo (ahora o en las próximas horas) */
+#weather-alert { font-weight: 700; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; padding: 2px 8px; border-radius: 8px; }
+#weather-alert.alert-amarilla { background: rgba(251,191,36,0.18); color: #fbbf24; }
+#weather-alert.alert-naranja { background: rgba(249,115,22,0.22); color: #fb923c; }
+#weather-alert.alert-roja { background: rgba(239,68,68,0.28); color: #f87171; animation: pulseRed 2s infinite; }
+
 /* Banner Pase Rápido */

@@ -24,6 +24,7 @@
                             <span id="now-temp">--°</span>
                             <small id="now-city">Ciudad</small>
                             <small id="weather-stale" style="display:none;"></small>
+                            <small id="weather-alert" style="display:none;"></small>
                         </div>
                     </div>
                     <div class="weather-divider"></div>

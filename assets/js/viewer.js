@@ -99,7 +99,9 @@ async function loadSettings() {
             settings = settingsCache;
         } else {
             const setRes = await fetch('backend/api.php?action=get_weather_settings');
+            if (setRes.status === 304) { setConnectionState(true); return; }
             settings = await setRes.json();
+            setConnectionState(true);
             if (settings.error) return;
             settingsCache = settings;
             settingsCacheTs = now;
@@ -129,6 +131,8 @@ async function loadSettings() {
             weather_size: settings.weather_size || 'standard',
             weather_forecast_size: settings.weather_forecast_size || 'standard'
         };
+
+        preloadWeatherIcons(weatherConfig.weather_icons);
 
         if (weatherData) {
             if (prevLat !== weatherConfig.weather_lat || prevLon !== weatherConfig.weather_lon) {
@@ -232,6 +236,7 @@ function updateWeatherUI() {
     widget.style.display = 'flex';
     weatherCarouselIndex = 0;
     rotateWeather();
+    updateWeatherAlertUI();
 }
 
 function rotateWeather() {
@@ -248,6 +253,28 @@ function getCustomFilter(style) {
     return 'filter: drop-shadow(0 8px 15px rgba(0,0,0,0.2));';
 }
 
+const WEATHER_ICON_NAMES = ['clear-day', 'partly-cloudy-day', 'overcast', 'fog', 'drizzle', 'rain', 'snow', 'thunderstorms', 'cloudy'];
+let preloadedIconStyle = null;
+
+function iconFolderForStyle(styleName) {
+    if (styleName === 'minimal-line') return 'line';
+    if (styleName === 'neo-flat') return 'outline';
+    if (styleName === 'vibrant-anim') return 'monochrome';
+    return 'fill';
+}
+
+// Precarga en segundo plano los íconos del estilo activo para que, al llegar el
+// código de clima que corresponda, el navegador ya lo tenga cacheado (evita el
+// "tardan en cargar" cuando se pide por primera vez justo al mostrarse).
+function preloadWeatherIcons(styleName) {
+    if (preloadedIconStyle === styleName) return;
+    preloadedIconStyle = styleName;
+    const folder = iconFolderForStyle(styleName);
+    WEATHER_ICON_NAMES.forEach(name => {
+        new Image().src = `https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/${folder}/all/${name}.svg`;
+    });
+}
+
 function getPremiumIconURL(code, styleName) {
     let name = 'clear-day';
     const c = parseInt(code);
@@ -261,17 +288,83 @@ function getPremiumIconURL(code, styleName) {
     else if (c >= 80 && c <= 82) name = 'rain';
     else if (c >= 95) name = 'thunderstorms';
     else name = 'cloudy';
-    let folder = 'fill';
-    if (styleName === 'minimal-line') folder = 'line';
-    if (styleName === 'neo-flat') folder = 'outline';
-    if (styleName === 'vibrant-anim') folder = 'monochrome';
+    const folder = iconFolderForStyle(styleName);
     return `https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/${folder}/all/${name}.svg`;
+}
+
+// ─── ALERTA DE CLIMA SEVERO ───────────────────────────────────────────────────
+// Ventana de anticipación: además del clima actual, mira las próximas N horas
+// para avisar ANTES de que llegue el fenómeno, no solo cuando ya está pasando.
+const SEVERE_WEATHER_LOOKAHEAD_HOURS = 5;
+const WEATHER_ALERT_RANK = { amarilla: 1, naranja: 2, roja: 3 };
+const HEAT_ALERT_THRESHOLD = 35; // °C
+const FROST_ALERT_THRESHOLD = 0; // °C
+
+// Clasifica un código WMO puntual en un nivel de alerta, o null si no es severo.
+function classifyWeatherCode(code) {
+    const c = parseInt(code);
+    if (c === 96 || c === 99) return { level: 'roja', label: 'Tormenta con granizo' };
+    if (c === 95) return { level: 'naranja', label: 'Tormenta eléctrica' };
+    if (c === 65 || c === 82) return { level: 'naranja', label: 'Lluvia intensa' };
+    if (c === 75 || c === 86) return { level: 'naranja', label: 'Nevada intensa' };
+    if ([56, 57, 66, 67].includes(c)) return { level: 'amarilla', label: 'Lluvia helada' };
+    return null;
+}
+
+// Revisa el clima actual + próximas SEVERE_WEATHER_LOOKAHEAD_HOURS horas + extremos
+// del día, y devuelve la alerta más severa encontrada (o null si no hay ninguna).
+function getWeatherAlert() {
+    if (!weatherData || !weatherData.hourly) return null;
+    let best = null;
+    const consider = (alert, whenSuffix) => {
+        if (!alert) return;
+        if (!best || WEATHER_ALERT_RANK[alert.level] > WEATHER_ALERT_RANK[best.level]) {
+            best = { level: alert.level, label: whenSuffix ? `${alert.label} ${whenSuffix}` : alert.label };
+        }
+    };
+
+    consider(classifyWeatherCode(weatherData.current.weather_code));
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const curStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:00`;
+    let startIdx = weatherData.hourly.time.findIndex(t => t >= curStr);
+    if (startIdx < 0) startIdx = 0;
+
+    for (let i = startIdx; i < startIdx + SEVERE_WEATHER_LOOKAHEAD_HOURS && i < weatherData.hourly.time.length; i++) {
+        const hoursAhead = i - startIdx;
+        consider(classifyWeatherCode(weatherData.hourly.weather_code[i]), hoursAhead === 0 ? null : `en ${hoursAhead}h`);
+    }
+
+    if (weatherData.daily) {
+        const tMax = weatherData.daily.temperature_2m_max[0];
+        const tMin = weatherData.daily.temperature_2m_min[0];
+        if (tMax >= HEAT_ALERT_THRESHOLD) consider({ level: 'naranja', label: `Calor extremo (${Math.round(tMax)}°)` });
+        if (tMin <= FROST_ALERT_THRESHOLD) consider({ level: 'amarilla', label: 'Riesgo de helada' });
+    }
+
+    return best;
+}
+
+function updateWeatherAlertUI() {
+    const el = document.getElementById('weather-alert');
+    if (!el) return;
+    const alert = getWeatherAlert();
+    if (alert) {
+        el.textContent = alert.label;
+        el.className = `alert-${alert.level}`;
+        el.style.display = 'inline-block';
+    } else {
+        el.style.display = 'none';
+    }
 }
 
 async function loadPlaylist() {
     try {
         const response = await fetch('backend/api.php?action=get_active_media');
+        if (response.status === 304) { setConnectionState(true); return; }
         const data = await response.json();
+        setConnectionState(true);
         if (data.error) return;
         if (JSON.stringify(data) !== JSON.stringify(playlist)) {
             const isFirstLoad = playlist.length === 0;
@@ -345,8 +438,9 @@ function showNext() {
     } else if (item.tipo === 'video') {
         const video = document.createElement('video');
         video.src = item.ruta;
-        video.autoplay = true;
+        video.preload = 'auto';
         video.muted = true;
+        video.autoplay = true;
         video.onended = () => { advanceIndex(); showNext(); };
         video.onerror = () => { video.remove(); advanceIndex(); showNext(); };
 
@@ -366,8 +460,11 @@ function showNext() {
             }, FADE);
         };
 
+        // "loadeddata" ya trae el primer frame decodificado; "canplay" puede tardar más.
+        // Cualquiera de los dos habilita mostrarlo sin pantalla negra de por medio.
+        video.addEventListener('loadeddata', show, { once: true });
         video.addEventListener('canplay', show, { once: true });
-        setTimeout(show, 1500);
+        setTimeout(show, 4000); // red de seguridad si el video nunca dispara los eventos
 
     } else {
         advanceIndex();
@@ -391,6 +488,12 @@ function hideEntryOverlay() {
 }
 
 function preloadNext() {
+    // Solo se precargan imágenes (livianas, ~cientos de KB tras la compresión WebP).
+    // Los videos NO se precargan por adelantado: pueden pesar hasta 100MB y si el
+    // Pase Rápido interrumpe el slideshow o la playlist cambia antes de mostrarse,
+    // esos bytes ya se habrían descargado del hosting para nada. El video se pide
+    // recién al mostrarse (ver showNext) — la espera se cubre dejando la diapositiva
+    // anterior visible en pantalla (sin negro) hasta que haya frame decodificado.
     if (playlist.length <= 1) return;
     const next = playlist[(currentIndex + 1) % playlist.length];
     if (next && next.tipo === 'imagen') new Image().src = next.ruta;
