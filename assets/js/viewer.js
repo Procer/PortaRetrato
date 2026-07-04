@@ -449,8 +449,12 @@ function showNext() {
 
         let shown = false;
         const show = () => {
-            if (shown) return;
+            // Nunca revelar sin un frame decodificado (readyState >= HAVE_CURRENT_DATA):
+            // si se hace, el <video> pasa a opacity:1 mostrando negro y tapa la
+            // diapositiva anterior que seguía visible debajo. Mejor esperar más.
+            if (shown || video.readyState < 2) return;
             shown = true;
+            clearInterval(readyPoll);
             hideEntryOverlay();
             preloadNext();
             void video.offsetHeight;
@@ -464,7 +468,23 @@ function showNext() {
         // Cualquiera de los dos habilita mostrarlo sin pantalla negra de por medio.
         video.addEventListener('loadeddata', show, { once: true });
         video.addEventListener('canplay', show, { once: true });
-        setTimeout(show, 4000); // red de seguridad si el video nunca dispara los eventos
+
+        // Red de seguridad: sondea readyState (por si el evento no llega en algunos
+        // navegadores) sin forzar nunca un reveal sin frame. Si tras 20s de espera
+        // real (video grande / conexión lenta) sigue sin haber datos, se asume
+        // atascado y se salta al siguiente ítem en vez de mostrar negro.
+        let waited = 0;
+        const readyPoll = setInterval(() => {
+            if (shown) { clearInterval(readyPoll); return; }
+            if (video.readyState >= 2) { show(); return; }
+            waited += 500;
+            if (waited >= 20000) {
+                clearInterval(readyPoll);
+                video.remove();
+                advanceIndex();
+                showNext();
+            }
+        }, 500);
 
     } else {
         advanceIndex();
