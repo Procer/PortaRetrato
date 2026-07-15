@@ -55,6 +55,7 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         <div class="tab-item active" onclick="location.reload()" title="Ver todos"><i class="fas fa-grip"></i></div>
         <div id="main-upload-btn" class="btn-add aura-gradient-bg" onclick="openUploadModal()" title="Subir"><i class="fas fa-cloud-arrow-up"></i></div>
         <div class="tab-item" onclick="openQuickShowModal()" title="Pase Rápido"><i class="fas fa-bolt"></i></div>
+        <div class="tab-item" onclick="openRecordatoriosModal()" title="Mensajes familiares"><i class="fas fa-note-sticky"></i></div>
         <div class="tab-item" onclick="togglePreviewModal()" title="Vista previa inline"><i class="fas fa-eye"></i></div>
         <div class="tab-item" onclick="openQRModal()" title="Compartir enlace QR"><i class="fas fa-qrcode"></i></div>
         <div class="tab-item" onclick="window.open('../', '_blank')" title="Ver Visor"><i class="fas fa-tv"></i></div>
@@ -402,6 +403,51 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         </div>
     </div>
 
+    <!-- MODAL RECORDATORIOS FAMILIARES -->
+    <div id="recordatorios-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-panel modal-content aura-modal" style="max-width:480px;">
+            <button class="close-btn" onclick="closeModal('recordatorios-modal')"><i class="fas fa-times"></i></button>
+            <div class="modal-header">
+                <h2><i class="fas fa-note-sticky" style="color:var(--accent); font-size:1rem; margin-right:6px;"></i> Mensajes familiares</h2>
+            </div>
+            <div class="modal-section" style="max-height:65vh; overflow-y:auto; padding-right:8px;">
+                <p class="section-label">Dejar un mensaje</p>
+                <div class="input-wrapper">
+                    <i class="fas fa-user"></i>
+                    <input type="text" id="recordatorio-autor-input" placeholder="Tu nombre (opcional)">
+                </div>
+                <div class="input-wrapper" style="align-items:flex-start;">
+                    <i class="fas fa-message" style="margin-top:14px;"></i>
+                    <textarea id="recordatorio-mensaje-input" rows="3" maxlength="280" placeholder="Ej: Comprar leche, cumple de la abuela el sábado..." style="width:100%; padding:12px 12px 12px 45px; border-radius:12px; border:1px solid #e2e8f0; font-family:inherit; font-weight:600; background:#f8fafc; resize:vertical;"></textarea>
+                </div>
+                <button onclick="addRecordatorio()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:4px;">
+                    <i class="fas fa-paper-plane" style="margin-right:8px;"></i> Dejar mensaje
+                </button>
+
+                <div class="divider-aura"></div>
+
+                <p class="section-label">Duración del panel en el Visor (segundos)</p>
+                <p style="font-size:0.75rem; color:#94a3b8; margin-bottom:8px;">Al abrirse en el portarretrato, se cierra solo después de este tiempo</p>
+                <div style="display:flex; gap:10px; align-items:center; margin-bottom:4px;">
+                    <div class="input-wrapper" style="flex:1; margin-bottom:0;">
+                        <i class="fas fa-clock"></i>
+                        <input type="number" id="recordatorios-duration-input" min="5" max="120" placeholder="20">
+                    </div>
+                    <button onclick="saveRecordatoriosDuration()" class="btn-primary-aura" style="width:auto; padding:12px 20px; background:var(--accent-gradient); flex-shrink:0;">Guardar</button>
+                </div>
+
+                <div class="divider-aura"></div>
+
+                <p class="section-label">Mensajes en el portarretrato</p>
+                <div id="recordatorios-list"></div>
+                <div id="recordatorios-empty" style="text-align:center; padding:30px 20px; color:#94a3b8; display:none;">
+                    <i class="fas fa-note-sticky" style="font-size:2.2rem; margin-bottom:12px; opacity:0.2; display:block;"></i>
+                    <p style="font-size:0.85rem;">No hay mensajes todavía</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL QR -->
     <div id="qr-modal" class="modal-overlay" style="display:none;">
         <div class="glass-panel modal-content aura-modal" style="max-width:360px; text-align:center;">
@@ -495,6 +541,13 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         .wf-size-large .wp-item small { font-size: 1.1rem; }
         .wf-size-extra .wp-item span  { font-size: 1.9rem; }
         .wf-size-extra .wp-item small { font-size: 1.5rem; }
+
+        /* RECORDATORIOS FAMILIARES */
+        .recordatorio-item { display: flex; gap: 12px; align-items: flex-start; background: #f8fafc; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; }
+        .recordatorio-item .rec-body { flex: 1; min-width: 0; }
+        .recordatorio-item .rec-msg { font-weight: 600; color: #0f172a; font-size: 0.85rem; word-break: break-word; }
+        .recordatorio-item .rec-meta { font-size: 0.68rem; color: #94a3b8; margin-top: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
+        .recordatorio-item .rec-del { background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; flex-shrink: 0; }
     </style>
     <script src="../assets/js/gestion.js"></script>
 </body>

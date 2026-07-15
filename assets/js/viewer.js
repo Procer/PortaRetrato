@@ -1,7 +1,7 @@
 // Visor - Porta Retrato v1.1
 let playlist = [];
 let currentIndex = 0;
-let currentSettings = { duration: 10, animation: 'fade', clock_style: 'classic', clock_size: 'standard', date_format: 'full', quick_show_duration: 8 };
+let currentSettings = { duration: 10, animation: 'fade', clock_style: 'classic', clock_size: 'standard', date_format: 'full', quick_show_duration: 8, recordatorios_duration: 20 };
 let weatherConfig = { city: '', lat: '', lon: '', days: 3, hours: 6, icons: 'aura-glow' };
 let weatherData = null;
 let weatherCarouselIndex = 0;
@@ -22,17 +22,27 @@ let settingsCache = null;
 let settingsCacheTs = 0;
 const SETTINGS_CACHE_TTL = 5 * 60 * 1000;
 
+// Audio por video — solo el video que se está mostrando puede destaparse
+let currentVideoEl = null;
+
+// Recordatorios familiares
+let recordatoriosCache = [];
+let recordatoriosUnseenCount = 0;
+let recordatoriosCloseTimer = null;
+
 const display = document.getElementById('media-display');
 
 document.addEventListener('DOMContentLoaded', async () => {
     loadPlaylist();
     await loadSettings();
     loadWeatherData();
+    loadRecordatorios();
     updateClock();
     checkNightMode();
     setInterval(loadPlaylist, 60000);
     setInterval(loadSettings, 300000); // settings cambian rarísimo → cada 5 min
     setInterval(loadWeatherData, 1800000);
+    setInterval(loadRecordatorios, 60000);
     setInterval(rotateWeather, 8000);
     setInterval(updateClock, 1000);
     setInterval(checkNightMode, 60000);
@@ -45,6 +55,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.addEventListener('click', () => {
         if (!quickShowActive) startQuickShow();
+    });
+
+    // Botonera física (USB HID tipo teclado, p.ej. Arduino Pro Micro con
+    // botones arcade): cada botón envía un keydown como si fuera un teclado
+    // normal, sin drivers. Mapeo: 1=Pase Rápido, 2=destapar audio del video
+    // actual, 3=ver mensajes familiares. No requiere hardware conectado para
+    // funcionar — el mouse/touch normal sigue andando igual.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === '1') { if (!quickShowActive) startQuickShow(); }
+        else if (e.key === '2') { toggleVideoSound(); }
+        else if (e.key === '3') { openRecordatoriosOverlay(); }
     });
 });
 
@@ -117,6 +138,7 @@ async function loadSettings() {
         currentSettings.night_start = settings.night_start || '23:00';
         currentSettings.night_end = settings.night_end || '07:00';
         currentSettings.quick_show_duration = parseInt(settings.quick_show_duration) || 8;
+        currentSettings.recordatorios_duration = parseInt(settings.recordatorios_duration) || 20;
 
         const prevLat = weatherConfig.weather_lat;
         const prevLon = weatherConfig.weather_lon;
@@ -145,7 +167,7 @@ async function loadSettings() {
 }
 
 async function loadWeatherData() {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherConfig.weather_lat}&longitude=${weatherConfig.weather_lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherConfig.weather_lat}&longitude=${weatherConfig.weather_lon}&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`;
     try {
         const res = await fetch(url);
         const data = await res.json();
@@ -201,7 +223,8 @@ function updateWeatherUI() {
 
     const iconStyle = weatherConfig.weather_icons;
     const imgStyle = getCustomFilter(iconStyle);
-    nowIcon.innerHTML = `<img src="${getPremiumIconURL(weatherData.current.weather_code, iconStyle)}" onerror="this.src='${getPremiumIconURL(weatherData.current.weather_code, 'aura-glow')}'" style="width:58px; height:54px; ${imgStyle}">`;
+    const nowIsNight = parseInt(weatherData.current.is_day) === 0;
+    nowIcon.innerHTML = `<img src="${getPremiumIconURL(weatherData.current.weather_code, iconStyle, nowIsNight)}" onerror="this.src='${getPremiumIconURL(weatherData.current.weather_code, 'aura-glow', nowIsNight)}'" style="width:58px; height:54px; ${imgStyle}">`;
 
     weatherCarouselItems = [];
     const _now = new Date();
@@ -216,7 +239,8 @@ function updateWeatherUI() {
     for (let i = _startIdx; i < _startIdx + _maxH && i < weatherData.hourly.time.length; i++) {
         const time = new Date(weatherData.hourly.time[i]).getHours();
         const code = weatherData.hourly.weather_code[i];
-        hoursHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow')}'" class="wi-icon" style="${imgStyle}"><span>${Math.round(weatherData.hourly.temperature_2m[i])}°</span><small>${time}:00</small></div>`;
+        const hourIsNight = parseInt(weatherData.hourly.is_day[i]) === 0;
+        hoursHtml += `<div class="weather-item"><img src="${getPremiumIconURL(code, iconStyle, hourIsNight)}" onerror="this.src='${getPremiumIconURL(code, 'aura-glow', hourIsNight)}'" class="wi-icon" style="${imgStyle}"><span>${Math.round(weatherData.hourly.temperature_2m[i])}°</span><small>${time}:00</small></div>`;
     }
     hoursHtml += '</div>';
     weatherCarouselItems.push(hoursHtml);
@@ -253,7 +277,7 @@ function getCustomFilter(style) {
     return 'filter: drop-shadow(0 8px 15px rgba(0,0,0,0.2));';
 }
 
-const WEATHER_ICON_NAMES = ['clear-day', 'partly-cloudy-day', 'overcast', 'fog', 'drizzle', 'rain', 'snow', 'thunderstorms', 'cloudy'];
+const WEATHER_ICON_NAMES = ['clear-day', 'clear-night', 'partly-cloudy-day', 'partly-cloudy-night', 'overcast', 'fog', 'drizzle', 'rain', 'snow', 'thunderstorms', 'cloudy'];
 let preloadedIconStyle = null;
 
 function iconFolderForStyle(styleName) {
@@ -275,11 +299,11 @@ function preloadWeatherIcons(styleName) {
     });
 }
 
-function getPremiumIconURL(code, styleName) {
+function getPremiumIconURL(code, styleName, isNight = false) {
     let name = 'clear-day';
     const c = parseInt(code);
-    if (c === 0) name = 'clear-day';
-    else if (c === 1 || c === 2) name = 'partly-cloudy-day';
+    if (c === 0) name = isNight ? 'clear-night' : 'clear-day';
+    else if (c === 1 || c === 2) name = isNight ? 'partly-cloudy-night' : 'partly-cloudy-day';
     else if (c === 3) name = 'overcast';
     else if (c >= 45 && c <= 48) name = 'fog';
     else if (c >= 51 && c <= 55) name = 'drizzle';
@@ -368,8 +392,21 @@ async function loadPlaylist() {
         if (data.error) return;
         if (JSON.stringify(data) !== JSON.stringify(playlist)) {
             const isFirstLoad = playlist.length === 0;
+            // El orden puede legítimamente cambiar entre polls (foto agregada/
+            // borrada/reordenada). Si mantuviéramos el mismo currentIndex
+            // numérico, pasaría a apuntar a otra foto distinta y el slideshow
+            // repetiría o saltearía fotos sin terminar el ciclo completo.
+            // Ubicamos por id la foto que se está mostrando ahora mismo.
+            const currentId = playlist[currentIndex] ? playlist[currentIndex].id : null;
             playlist = data;
-            if (playlist.length > 0) { if (isFirstLoad) { currentIndex = 0; showNext(); } }
+            if (playlist.length > 0) {
+                if (isFirstLoad) {
+                    currentIndex = 0; showNext();
+                } else {
+                    const preservedIdx = currentId !== null ? playlist.findIndex(p => p.id === currentId) : -1;
+                    currentIndex = preservedIdx >= 0 ? preservedIdx : 0;
+                }
+            }
             else { display.innerHTML = '<h2 class="no-content">No hay contenido activo</h2>'; }
         }
     } catch (e) {
@@ -415,6 +452,8 @@ function showNext() {
         }, FADE);
     }
 
+    hideSoundButton();
+
     if (item.tipo === 'imagen') {
         const img = new Image();
         img.src = item.ruta;
@@ -441,8 +480,9 @@ function showNext() {
         video.preload = 'auto';
         video.muted = true;
         video.autoplay = true;
-        video.onended = () => { advanceIndex(); showNext(); };
-        video.onerror = () => { video.remove(); advanceIndex(); showNext(); };
+        currentVideoEl = video;
+        video.onended = () => { hideSoundButton(); currentVideoEl = null; advanceIndex(); showNext(); };
+        video.onerror = () => { hideSoundButton(); currentVideoEl = null; video.remove(); advanceIndex(); showNext(); };
 
         enterState(video);
         display.appendChild(video);
@@ -457,6 +497,7 @@ function showNext() {
             clearInterval(readyPoll);
             hideEntryOverlay();
             preloadNext();
+            showSoundButton();
             void video.offsetHeight;
             activeState(video);
             setTimeout(() => {
@@ -480,6 +521,8 @@ function showNext() {
             waited += 500;
             if (waited >= 20000) {
                 clearInterval(readyPoll);
+                hideSoundButton();
+                currentVideoEl = null;
                 video.remove();
                 advanceIndex();
                 showNext();
@@ -638,9 +681,116 @@ function endQuickShow() {
 function hideWidgets() {
     const el = document.getElementById('unified-widget');
     if (el) { el.style.transition = 'opacity 0.5s ease'; el.style.opacity = '0'; el.style.pointerEvents = 'none'; }
+    const msg = document.getElementById('messages-btn');
+    if (msg) msg.style.display = 'none';
+    hideSoundButton();
 }
 
 function showWidgets() {
     const el = document.getElementById('unified-widget');
     if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
+    updateMessagesBadge();
+}
+
+// ─── AUDIO POR VIDEO ─────────────────────────────────────────────────────────
+// Los videos siempre arrancan mudos (autoplay con sonido lo bloquean los
+// navegadores sin gesto del usuario). Este botón permite destapar el audio
+// del video que se está mostrando en este momento, nada más — el próximo
+// video vuelve a arrancar mudo.
+
+function showSoundButton() {
+    const btn = document.getElementById('video-sound-btn');
+    if (!btn || !currentVideoEl) return;
+    btn.style.display = 'flex';
+    updateSoundButtonIcon();
+}
+
+function hideSoundButton() {
+    const btn = document.getElementById('video-sound-btn');
+    if (btn) btn.style.display = 'none';
+}
+
+function updateSoundButtonIcon() {
+    const btn = document.getElementById('video-sound-btn');
+    if (!btn || !currentVideoEl) return;
+    const muted = currentVideoEl.muted;
+    btn.classList.toggle('unmuted', !muted);
+    btn.innerHTML = `<i class="fas ${muted ? 'fa-volume-xmark' : 'fa-volume-high'}"></i>`;
+}
+
+function toggleVideoSound() {
+    if (!currentVideoEl) return;
+    currentVideoEl.muted = !currentVideoEl.muted;
+    updateSoundButtonIcon();
+}
+
+// ─── RECORDATORIOS FAMILIARES ────────────────────────────────────────────────
+// Aviso discreto (sin sonido) cuando alguien deja un mensaje desde Gestión:
+// un badge con contador sobre el ícono de nota. Al abrir el panel se marcan
+// como vistos para que el badge no quede pegado para siempre.
+
+async function loadRecordatorios() {
+    try {
+        const res = await fetch('backend/api.php?action=get_recordatorios');
+        if (res.status === 304) return;
+        const data = await res.json();
+        if (!data || data.error) return;
+        recordatoriosCache = data;
+        recordatoriosUnseenCount = data.filter(r => !parseInt(r.visto)).length;
+        updateMessagesBadge();
+    } catch (e) { console.error('Error recordatorios', e); }
+}
+
+function updateMessagesBadge() {
+    const wrap = document.getElementById('messages-btn');
+    const badge = document.getElementById('messages-badge');
+    if (!wrap || !badge) return;
+    if (quickShowActive) return; // hideWidgets() ya lo ocultó
+
+    // Sin mensajes (ni siquiera viejos), el ícono no tiene nada que ofrecer.
+    if (recordatoriosCache.length === 0) { wrap.style.display = 'none'; return; }
+
+    wrap.style.display = 'flex';
+    wrap.classList.toggle('has-unseen', recordatoriosUnseenCount > 0);
+    if (recordatoriosUnseenCount > 0) {
+        badge.style.display = 'flex';
+        badge.textContent = recordatoriosUnseenCount > 9 ? '9+' : recordatoriosUnseenCount;
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function openRecordatoriosOverlay() {
+    const list = document.getElementById('recordatorios-overlay-list');
+    list.innerHTML = '';
+    if (recordatoriosCache.length === 0) {
+        list.innerHTML = '<div id="recordatorios-overlay-empty">No hay mensajes todavía</div>';
+    } else {
+        recordatoriosCache.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'rec-overlay-item';
+            const fecha = new Date(item.fecha_creacion.replace(' ', 'T')).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            const autor = item.autor ? `${item.autor} · ` : '';
+            div.innerHTML = `<div class="rec-o-msg"></div><div class="rec-o-meta">${autor}${fecha}</div>`;
+            div.querySelector('.rec-o-msg').textContent = item.mensaje;
+            list.appendChild(div);
+        });
+    }
+    document.getElementById('recordatorios-overlay').style.display = 'flex';
+
+    if (recordatoriosUnseenCount > 0) {
+        recordatoriosUnseenCount = 0;
+        updateMessagesBadge();
+        fetch('backend/api.php?action=mark_recordatorios_vistos').catch(() => {});
+    }
+
+    // Se cierra solo — el Visor corre 24/7 sin nadie mirando, no puede quedar
+    // un panel tapando el slideshow indefinidamente si alguien lo abre y se va.
+    clearTimeout(recordatoriosCloseTimer);
+    recordatoriosCloseTimer = setTimeout(closeRecordatoriosOverlay, (currentSettings.recordatorios_duration || 20) * 1000);
+}
+
+function closeRecordatoriosOverlay() {
+    clearTimeout(recordatoriosCloseTimer);
+    document.getElementById('recordatorios-overlay').style.display = 'none';
 }

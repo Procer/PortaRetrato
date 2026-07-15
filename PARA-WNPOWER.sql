@@ -52,7 +52,23 @@ INSERT IGNORE INTO settings (clave, valor) VALUES
     -- Pase rápido (nuevo)
     ('quick_show_duration',   '8'),
     -- Clima — por si falta alguno
-    ('weather_forecast_size', 'large');
+    ('weather_forecast_size', 'large'),
+    -- Recordatorios familiares (nuevo 2026-07-15): segundos que dura el panel
+    -- abierto en el Visor antes de cerrarse solo
+    ('recordatorios_duration', '20');
+
+-- ------------------------------------------------------------
+-- 4. Nueva tabla para Recordatorios familiares (2026-07-15)
+--    (si ya existe, no hace nada)
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS recordatorios (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    mensaje        VARCHAR(280) NOT NULL,
+    autor          VARCHAR(60) DEFAULT NULL,
+    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+    visto          TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
 --  Listo. Tus datos existentes no se tocaron.

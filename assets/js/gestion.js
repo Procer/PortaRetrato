@@ -301,7 +301,8 @@ async function loadMedia() {
             card.setAttribute('draggable', 'true');
             const content = item.tipo === 'video' ? `<video src="../${item.ruta}" muted></video>` : `<img src="../${item.ruta}" loading="lazy">`;
             const durBadge = parseInt(item.duracion_img) > 0 ? `<div class="card-duration-badge">${item.duracion_img}s</div>` : '';
-            card.innerHTML = `${content}${durBadge}<div class="overlay"><div style="display:flex;gap:8px;"><button onclick="event.stopPropagation(); openMediaDurationModal(${item.id}, ${parseInt(item.duracion_img) || 0})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#8b5cf6; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-clock"></i></button><button onclick="event.stopPropagation(); deleteMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#ef4444; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-trash-can"></i></button></div></div><div class="drag-handle"><i class="fas fa-grip-dots-vertical"></i></div>`;
+            const rotateBtn = item.tipo !== 'video' ? `<button onclick="event.stopPropagation(); rotateMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#0ea5e9; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-rotate-right"></i></button>` : '';
+            card.innerHTML = `${content}${durBadge}<div class="overlay"><div style="display:flex;gap:8px;"><button onclick="event.stopPropagation(); openMediaDurationModal(${item.id}, ${parseInt(item.duracion_img) || 0})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#8b5cf6; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-clock"></i></button>${rotateBtn}<button onclick="event.stopPropagation(); deleteMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#ef4444; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-trash-can"></i></button></div></div><div class="drag-handle"><i class="fas fa-grip-dots-vertical"></i></div>`;
             card.onclick = () => openLightbox(item.ruta, item.tipo);
 
             card.addEventListener('dragstart', (e) => {
@@ -453,6 +454,16 @@ async function saveAlbumSettings() {
         showNotification("Ajustes del álbum guardados", "fa-sliders");
         closeModal('album-settings-modal');
     }
+}
+
+async function rotateMedia(id) {
+    const res = await fetch('../backend/api.php?action=rotate_media', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, degrees: 90 })
+    });
+    const data = await res.json();
+    if (data && data.error) { showNotification(data.error, "fa-triangle-exclamation"); return; }
+    loadMedia();
+    showNotification("Imagen rotada", "fa-rotate-right");
 }
 
 async function deleteMedia(id) {
@@ -661,6 +672,87 @@ async function clearQuickShow() {
         showNotification('Pase rápido vaciado', 'fa-broom');
         await loadQsMedia();
     }, 'warning');
+}
+
+// ─── RECORDATORIOS FAMILIARES ────────────────────────────────────────────────
+
+async function openRecordatoriosModal() {
+    document.getElementById('recordatorio-autor-input').value = '';
+    document.getElementById('recordatorio-mensaje-input').value = '';
+    document.getElementById('recordatorios-modal').style.display = 'flex';
+    await loadRecordatoriosDuration();
+    await loadRecordatorios();
+}
+
+async function loadRecordatoriosDuration() {
+    try {
+        const res = await fetch('../backend/api.php?action=get_weather_settings');
+        const settings = await res.json();
+        document.getElementById('recordatorios-duration-input').value = settings.recordatorios_duration || '20';
+    } catch (e) {}
+}
+
+async function saveRecordatoriosDuration() {
+    const dur = Math.max(5, parseInt(document.getElementById('recordatorios-duration-input').value) || 20);
+    await fetch('../backend/api.php?action=update_weather_settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordatorios_duration: String(dur) })
+    });
+    showNotification(`Duración del panel: ${dur}s`, 'fa-clock');
+}
+
+async function loadRecordatorios() {
+    try {
+        const res = await fetch('../backend/api.php?action=get_recordatorios');
+        const data = await res.json();
+        const list = document.getElementById('recordatorios-list');
+        const empty = document.getElementById('recordatorios-empty');
+        list.innerHTML = '';
+
+        if (!data || data.error || data.length === 0) {
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        data.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'recordatorio-item';
+            const fecha = new Date(item.fecha_creacion.replace(' ', 'T')).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            const autor = item.autor ? `${item.autor} · ` : '';
+            row.innerHTML = `
+                <div class="rec-body">
+                    <div class="rec-msg"></div>
+                    <div class="rec-meta">${autor}${fecha}</div>
+                </div>
+                <button class="rec-del" onclick="deleteRecordatorio(${item.id})"><i class="fas fa-trash-can"></i></button>`;
+            row.querySelector('.rec-msg').textContent = item.mensaje;
+            list.appendChild(row);
+        });
+    } catch (e) { console.error('Error cargando recordatorios', e); }
+}
+
+async function addRecordatorio() {
+    const mensaje = document.getElementById('recordatorio-mensaje-input').value.trim();
+    if (!mensaje) return;
+    const autor = document.getElementById('recordatorio-autor-input').value.trim();
+    const res = await fetch('../backend/api.php?action=add_recordatorio', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mensaje, autor })
+    });
+    const data = await res.json();
+    if (data && data.error) { showNotification(data.error, 'fa-triangle-exclamation'); return; }
+    document.getElementById('recordatorio-mensaje-input').value = '';
+    showNotification('Mensaje dejado en el portarretrato', 'fa-note-sticky');
+    await loadRecordatorios();
+}
+
+async function deleteRecordatorio(id) {
+    showConfirm('¿Eliminar mensaje?', 'Se borrará permanentemente.', async () => {
+        await fetch(`../backend/api.php?action=delete_recordatorio&id=${id}`);
+        showNotification('Mensaje eliminado', 'fa-trash-can');
+        await loadRecordatorios();
+    });
 }
 
 // ─── QR ──────────────────────────────────────────────────────────────────────

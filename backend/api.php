@@ -15,6 +15,57 @@ function sendCachedJson(string $json): void {
     echo $json;
 }
 
+// Agrega un query param con el mtime del archivo para invalidar el caché
+// del navegador (uploads/ se sirve con Cache-Control immutable 30 días)
+// cuando el archivo se sobreescribe, p.ej. al rotar una imagen.
+function bustCache(string $ruta): string {
+    $mtime = @filemtime('../' . $ruta);
+    return $mtime ? $ruta . '?v=' . $mtime : $ruta;
+}
+
+// Rota una imagen ya subida, sobrescribiendo el archivo en el mismo formato.
+function rotateImageFile(string $fullPath, int $degrees): bool {
+    $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+    $creators = [
+        'jpg'  => 'imagecreatefromjpeg',
+        'jpeg' => 'imagecreatefromjpeg',
+        'png'  => 'imagecreatefrompng',
+        'gif'  => 'imagecreatefromgif',
+        'webp' => 'imagecreatefromwebp',
+    ];
+    $creator = $creators[$ext] ?? null;
+    if (!$creator || !function_exists($creator)) return false;
+
+    $src = $creator($fullPath);
+    if (!$src) return false;
+
+    // imagerotate() gira antihorario; invertimos el ángulo para que "90" sea horario
+    $rotated = imagerotate($src, 360 - $degrees, 0);
+    imagedestroy($src);
+    if (!$rotated) return false;
+
+    if ($ext === 'webp' || $ext === 'png') {
+        imagealphablending($rotated, false);
+        imagesavealpha($rotated, true);
+    }
+
+    switch (true) {
+        case $ext === 'webp' && function_exists('imagewebp'):
+            $result = imagewebp($rotated, $fullPath, 82);
+            break;
+        case $ext === 'png':
+            $result = imagepng($rotated, $fullPath);
+            break;
+        case $ext === 'gif':
+            $result = imagegif($rotated, $fullPath);
+            break;
+        default:
+            $result = imagejpeg($rotated, $fullPath, 85);
+    }
+    imagedestroy($rotated);
+    return (bool)$result;
+}
+
 try {
     require_once 'config.php';
 
@@ -27,8 +78,14 @@ try {
             break;
 
         case 'get_active_media':
-            $stmt = $pdo->query("SELECT m.*, a.duracion_default as album_duracion, a.animacion_tipo FROM media m JOIN albums a ON m.album_id = a.id WHERE a.activo = 1 ORDER BY m.orden ASC");
-            sendCachedJson(json_encode($stmt->fetchAll()));
+            // Desempate por id: sin él, filas con el mismo "orden" (p.ej. fotos
+            // nunca reordenadas a mano, todas en 0) pueden volver en distinto
+            // orden entre consultas y el Visor termina repitiendo/saltando fotos.
+            $stmt = $pdo->query("SELECT m.*, a.duracion_default as album_duracion, a.animacion_tipo FROM media m JOIN albums a ON m.album_id = a.id WHERE a.activo = 1 ORDER BY m.orden ASC, m.id ASC");
+            $rows = $stmt->fetchAll();
+            foreach ($rows as &$row) { $row['ruta'] = bustCache($row['ruta']); }
+            unset($row);
+            sendCachedJson(json_encode($rows));
             break;
 
         case 'get_album_settings':
@@ -78,9 +135,35 @@ try {
 
         case 'get_album_media':
             $id = $_GET['id'] ?? 0;
-            $stmt = $pdo->prepare("SELECT * FROM media WHERE album_id = ? ORDER BY orden ASC");
+            $stmt = $pdo->prepare("SELECT * FROM media WHERE album_id = ? ORDER BY orden ASC, id ASC");
             $stmt->execute([$id]);
-            echo json_encode($stmt->fetchAll());
+            $rows = $stmt->fetchAll();
+            foreach ($rows as &$row) { $row['ruta'] = bustCache($row['ruta']); }
+            unset($row);
+            echo json_encode($rows);
+            break;
+
+        case 'rotate_media':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $id = (int)($data['id'] ?? 0);
+            $degrees = (int)($data['degrees'] ?? 90);
+            if (!in_array($degrees, [90, 180, 270], true)) {
+                echo json_encode(['error' => 'Ángulo inválido']);
+                break;
+            }
+            $stmt = $pdo->prepare("SELECT ruta, tipo FROM media WHERE id = ?");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch();
+            if (!$row || $row['tipo'] !== 'imagen') {
+                echo json_encode(['error' => 'Imagen no encontrada']);
+                break;
+            }
+            $fullPath = '../' . $row['ruta'];
+            if (!file_exists($fullPath) || !rotateImageFile($fullPath, $degrees)) {
+                echo json_encode(['error' => 'No se pudo rotar la imagen']);
+                break;
+            }
+            echo json_encode(['success' => true]);
             break;
 
         case 'set_active_album':
@@ -189,6 +272,35 @@ try {
             if (!preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horario)) { echo json_encode(['error' => 'Horario inválido']); break; }
             $stmt = $pdo->prepare("UPDATE quick_show_media SET dia_semana = ?, horario = ? WHERE id = ?");
             $stmt->execute([$dia_semana, $horario, $id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ─── RECORDATORIOS FAMILIARES ──────────────────────────────────────
+        case 'get_recordatorios':
+            $stmt = $pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC");
+            sendCachedJson(json_encode($stmt->fetchAll()));
+            break;
+
+        case 'add_recordatorio':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $mensaje = trim($data['mensaje'] ?? '');
+            $autor = trim($data['autor'] ?? '') ?: null;
+            if ($mensaje === '') { echo json_encode(['error' => 'El mensaje no puede estar vacío']); break; }
+            $mensaje = mb_substr($mensaje, 0, 280);
+            $stmt = $pdo->prepare("INSERT INTO recordatorios (mensaje, autor) VALUES (?, ?)");
+            $stmt->execute([$mensaje, $autor]);
+            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            break;
+
+        case 'delete_recordatorio':
+            $id = (int)($_GET['id'] ?? 0);
+            $stmt = $pdo->prepare("DELETE FROM recordatorios WHERE id = ?");
+            $stmt->execute([$id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'mark_recordatorios_vistos':
+            $pdo->query("UPDATE recordatorios SET visto = 1 WHERE visto = 0");
             echo json_encode(['success' => true]);
             break;
 

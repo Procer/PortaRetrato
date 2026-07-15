@@ -13,6 +13,17 @@
     <div id="entry-overlay"></div>
     <div id="night-overlay"></div>
     <div id="offline-indicator" class="connection-online"><i class="fas fa-wifi"></i><span>En línea</span></div>
+    <div id="messages-btn" style="display:none;" onclick="event.stopPropagation(); openRecordatoriosOverlay();">
+        <i class="fas fa-note-sticky"></i>
+        <span id="messages-badge" style="display:none;"></span>
+    </div>
+    <div id="recordatorios-overlay" style="display:none;" onclick="closeRecordatoriosOverlay()">
+        <div id="recordatorios-overlay-content" onclick="event.stopPropagation()">
+            <button id="recordatorios-overlay-close" onclick="closeRecordatoriosOverlay()"><i class="fas fa-times"></i></button>
+            <h2><i class="fas fa-note-sticky"></i> Mensajes familiares</h2>
+            <div id="recordatorios-overlay-list"></div>
+        </div>
+    </div>
     <div id="viewer-container">
         <!-- Barra inferior: clima + reloj en un solo renglón -->
         <div id="bottom-right-widgets">
@@ -40,6 +51,10 @@
 
         <!-- El contenido (img/video) se cargará aquí dinámicamente -->
         <div id="media-display"></div>
+
+        <div id="video-sound-btn" class="video-sound-btn" style="display:none;" onclick="event.stopPropagation(); toggleVideoSound();">
+            <i class="fas fa-volume-xmark"></i>
+        </div>
     </div>
 
     <script src="assets/js/viewer.js"></script>

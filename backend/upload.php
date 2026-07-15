@@ -81,6 +81,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $uploaded = 0;
     $failed   = [];
 
+    // Las fotos nuevas se agregan al final de la secuencia del álbum en vez de
+    // quedar en el "orden" por defecto (0): si empataran con fotos existentes,
+    // el desempate por id las pondría antes de todo el contenido ya cargado.
+    $next_orden = 0;
+    if (!$is_quick_show) {
+        $stmt = $pdo->prepare("SELECT COALESCE(MAX(orden), -1) + 1 FROM media WHERE album_id = ?");
+        $stmt->execute([$album_id]);
+        $next_orden = (int)$stmt->fetchColumn();
+    }
+
     foreach ($_FILES['media']['name'] as $key => $name) {
         if ($_FILES['media']['error'][$key] !== UPLOAD_ERR_OK) { $failed[] = $name; continue; }
 
@@ -117,8 +127,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([$ruta]);
         } else {
             $type = $isVideo ? 'video' : 'imagen';
-            $stmt = $pdo->prepare("INSERT INTO media (album_id, ruta, tipo) VALUES (?, ?, ?)");
-            $stmt->execute([$album_id, 'uploads/' . $new_name, $type]);
+            $stmt = $pdo->prepare("INSERT INTO media (album_id, ruta, tipo, orden) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$album_id, 'uploads/' . $new_name, $type, $next_orden]);
+            $next_orden++;
         }
         $uploaded++;
     }
