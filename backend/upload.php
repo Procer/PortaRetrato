@@ -68,6 +68,35 @@ function compressImage(string $source, string $destNoExt) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    // ─── Imagen de reposo (pantalla fija fuera del horario del Visor) ─────────
+    // Sube una sola imagen, la comprime igual que el resto y guarda su ruta en
+    // settings.visor_off_image. Borra la imagen de reposo anterior.
+    if (($_POST['rest_image'] ?? '0') === '1') {
+        if (!isset($_FILES['media']['tmp_name'][0]) || $_FILES['media']['error'][0] !== UPLOAD_ERR_OK) {
+            die(json_encode(['error' => 'No se recibió la imagen']));
+        }
+        $dir = '../uploads/';
+        if (!file_exists($dir)) mkdir($dir, 0777, true);
+
+        $base = 'rest_' . uniqid();
+        $tmp  = $dir . $base . '.tmp';
+        move_uploaded_file($_FILES['media']['tmp_name'][0], $tmp);
+        $finalExt = compressImage($tmp, $dir . $base);
+        @unlink($tmp);
+        if ($finalExt === false) die(json_encode(['error' => 'Formato de imagen no soportado (probá JPG o PNG)']));
+
+        $ruta = 'uploads/' . $base . '.' . $finalExt;
+
+        $prev = $pdo->query("SELECT valor FROM settings WHERE clave = 'visor_off_image'")->fetchColumn();
+        if ($prev) {
+            $prevPath = '../' . preg_replace('/\?.*$/', '', $prev);
+            if (file_exists($prevPath) && $prevPath !== '../' . $ruta) @unlink($prevPath);
+        }
+        $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES ('visor_off_image', ?)")->execute([$ruta]);
+        die(json_encode(['success' => true, 'ruta' => $ruta]));
+    }
+
     $is_quick_show = (($_POST['quick_show'] ?? '0') === '1');
 
     if (!$is_quick_show) {

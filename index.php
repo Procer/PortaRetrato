@@ -5,13 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Visor - Porta Retrato v1.1</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
+    <link rel="manifest" href="manifest.webmanifest">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
-    <link rel="stylesheet" href="assets/css/viewer.css">
+    <link rel="stylesheet" href="assets/css/viewer.css?v=20260831">
 </head>
 <body>
     <div id="entry-overlay"></div>
     <div id="night-overlay"></div>
+    <div id="rest-overlay"></div>
     <div id="offline-indicator" class="connection-online"><i class="fas fa-wifi"></i><span>En línea</span></div>
     <div id="messages-btn" style="display:none;" onclick="event.stopPropagation(); openRecordatoriosOverlay();">
         <i class="fas fa-note-sticky"></i>
@@ -57,6 +59,6 @@
         </div>
     </div>
 
-    <script src="assets/js/viewer.js"></script>
+    <script src="assets/js/viewer.js?v=20260831"></script>
 </body>
 </html>

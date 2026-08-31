@@ -15,12 +15,16 @@ let quickShowActive = false;
 let currentTimer = null;
 let quickShowCache = null;
 let quickShowCacheTs = 0;
-const QS_CACHE_TTL = 5 * 60 * 1000;
+const QS_CACHE_TTL = 15 * 60 * 1000;
 
-// Cache de settings — se refresca máximo cada 5 min (cambian rarísima vez)
-let settingsCache = null;
-let settingsCacheTs = 0;
-const SETTINGS_CACHE_TTL = 5 * 60 * 1000;
+// Modo sync — el Visor descarga cada archivo una sola vez (Service Worker) y
+// después reproduce desde el cache del navegador, incluso sin conexión.
+let lastManifestHash = null;
+const SYNC_INTERVAL = 10 * 60 * 1000; // cada 10 min pide el manifest (unos KB; 304 si nada cambió)
+
+// Horario de encendido del Visor: fuera de él, reproducción frenada + imagen de reposo.
+let visorOff = false;
+let restOverlayEl = null;
 
 // Audio por video — solo el video que se está mostrando puede destaparse
 let currentVideoEl = null;
@@ -33,28 +37,36 @@ let recordatoriosCloseTimer = null;
 const display = document.getElementById('media-display');
 
 document.addEventListener('DOMContentLoaded', async () => {
-    loadPlaylist();
-    await loadSettings();
+    // Service Worker: cachea la media para que el hosting solo la envíe una vez.
+    // Si no se registra (p.ej. sitio sin HTTPS) el Visor sigue funcionando igual,
+    // solo que sin el ahorro de ancho de banda.
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW no registrado', e));
+    }
+    restOverlayEl = document.getElementById('rest-overlay');
+
+    await syncFromManifest(true);   // primera carga: aplica settings y arranca el slideshow
     loadWeatherData();
-    loadRecordatorios();
     updateClock();
+    checkVisorSchedule();
     checkNightMode();
-    setInterval(loadPlaylist, 60000);
-    setInterval(loadSettings, 300000); // settings cambian rarísimo → cada 5 min
+
+    setInterval(syncFromManifest, SYNC_INTERVAL);
+    setInterval(loadRecordatorios, 60000);   // los mensajes familiares siguen casi en vivo
     setInterval(loadWeatherData, 1800000);
-    setInterval(loadRecordatorios, 60000);
     setInterval(rotateWeather, 8000);
     setInterval(updateClock, 1000);
     setInterval(checkNightMode, 60000);
+    setInterval(checkVisorSchedule, 30000);
 
     window.addEventListener('offline', () => setConnectionState(false));
     window.addEventListener('online', () => {
         setConnectionState(true);
-        loadPlaylist();
+        syncFromManifest();
     });
 
     document.addEventListener('click', () => {
-        if (!quickShowActive) startQuickShow();
+        if (!visorOff && !quickShowActive) startQuickShow();
     });
 
     // Botonera física (USB HID tipo teclado, p.ej. Arduino Pro Micro con
@@ -63,6 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // actual, 3=ver mensajes familiares. No requiere hardware conectado para
     // funcionar — el mouse/touch normal sigue andando igual.
     document.addEventListener('keydown', (e) => {
+        if (visorOff) return;
         if (e.key === '1') { if (!quickShowActive) startQuickShow(); }
         else if (e.key === '2') { toggleVideoSound(); }
         else if (e.key === '3') { openRecordatoriosOverlay(); }
@@ -112,58 +125,54 @@ function updateClock() {
     if(widget) widget.className = `clock-glass style-${currentSettings.clock_style} size-${currentSettings.clock_size}`;
 }
 
-async function loadSettings() {
-    try {
-        const now = Date.now();
-        let settings;
-        if (settingsCache && (now - settingsCacheTs) < SETTINGS_CACHE_TTL) {
-            settings = settingsCache;
+// Aplica el bloque de settings que viene dentro del manifest (key-value).
+// No toca la red.
+function applySettings(settings) {
+    if (!settings || settings.error) return;
+
+    currentSettings.duration = parseInt(settings.slide_duration) || 10;
+    currentSettings.animation = settings.slide_animation || 'fade';
+    currentSettings.clock_style = settings.clock_style || 'classic';
+    currentSettings.clock_size = settings.clock_size || 'standard';
+    currentSettings.date_format = settings.date_format || 'full';
+    currentSettings.night_mode_enabled = settings.night_mode_enabled || '0';
+    currentSettings.night_start = settings.night_start || '23:00';
+    currentSettings.night_end = settings.night_end || '07:00';
+    currentSettings.quick_show_duration = parseInt(settings.quick_show_duration) || 8;
+    currentSettings.recordatorios_duration = parseInt(settings.recordatorios_duration) || 20;
+
+    // Horario de encendido del Visor + imagen de reposo
+    currentSettings.visor_schedule_enabled = settings.visor_schedule_enabled || '0';
+    currentSettings.visor_on = settings.visor_on || '07:00';
+    currentSettings.visor_off = settings.visor_off || '23:00';
+    currentSettings.visor_off_image = settings.visor_off_image || '';
+
+    const prevLat = weatherConfig.weather_lat;
+    const prevLon = weatherConfig.weather_lon;
+
+    weatherConfig = {
+        weather_city: settings.weather_city || 'Buenos Aires',
+        weather_lat: settings.weather_lat || '-34.6037',
+        weather_lon: settings.weather_lon || '-58.3816',
+        weather_days: settings.weather_days || '3',
+        weather_hours: settings.weather_hours || '6',
+        weather_icons: settings.weather_icons || 'aura-glow',
+        weather_size: settings.weather_size || 'standard',
+        weather_forecast_size: settings.weather_forecast_size || 'standard'
+    };
+
+    preloadWeatherIcons(weatherConfig.weather_icons);
+
+    if (weatherData) {
+        if (prevLat !== weatherConfig.weather_lat || prevLon !== weatherConfig.weather_lon) {
+            loadWeatherData();
         } else {
-            const setRes = await fetch('backend/api.php?action=get_weather_settings');
-            if (setRes.status === 304) { setConnectionState(true); return; }
-            settings = await setRes.json();
-            setConnectionState(true);
-            if (settings.error) return;
-            settingsCache = settings;
-            settingsCacheTs = now;
+            updateWeatherUI();
         }
-        if (settings.error) return;
+    }
 
-        currentSettings.duration = parseInt(settings.slide_duration) || 10;
-        currentSettings.animation = settings.slide_animation || 'fade';
-        currentSettings.clock_style = settings.clock_style || 'classic';
-        currentSettings.clock_size = settings.clock_size || 'standard';
-        currentSettings.date_format = settings.date_format || 'full';
-        currentSettings.night_mode_enabled = settings.night_mode_enabled || '0';
-        currentSettings.night_start = settings.night_start || '23:00';
-        currentSettings.night_end = settings.night_end || '07:00';
-        currentSettings.quick_show_duration = parseInt(settings.quick_show_duration) || 8;
-        currentSettings.recordatorios_duration = parseInt(settings.recordatorios_duration) || 20;
-
-        const prevLat = weatherConfig.weather_lat;
-        const prevLon = weatherConfig.weather_lon;
-
-        weatherConfig = {
-            weather_city: settings.weather_city || 'Buenos Aires',
-            weather_lat: settings.weather_lat || '-34.6037',
-            weather_lon: settings.weather_lon || '-58.3816',
-            weather_days: settings.weather_days || '3',
-            weather_hours: settings.weather_hours || '6',
-            weather_icons: settings.weather_icons || 'aura-glow',
-            weather_size: settings.weather_size || 'standard',
-            weather_forecast_size: settings.weather_forecast_size || 'standard'
-        };
-
-        preloadWeatherIcons(weatherConfig.weather_icons);
-
-        if (weatherData) {
-            if (prevLat !== weatherConfig.weather_lat || prevLon !== weatherConfig.weather_lon) {
-                await loadWeatherData();
-            } else {
-                updateWeatherUI();
-            }
-        }
-    } catch (e) { console.error("Error settings", e); }
+    // Si cambió la config de horario, re-evaluar en el acto.
+    if (restOverlayEl) checkVisorSchedule();
 }
 
 async function loadWeatherData() {
@@ -383,39 +392,97 @@ function updateWeatherAlertUI() {
     }
 }
 
-async function loadPlaylist() {
+// ─── MODO SYNC ───────────────────────────────────────────────────────────────
+// Pide el manifest (un JSON chico: toda la config + la lista de media del álbum
+// activo, cada archivo con su tamaño/mtime). Si algo cambió respecto de la
+// última vez: aplica settings, actualiza recordatorios / pase rápido, cambia la
+// playlist y precarga al cache SOLO los archivos nuevos. Sin conexión: no hace
+// nada y el Visor sigue reproduciendo lo que ya está cacheado.
+async function syncFromManifest(isFirst = false) {
+    let manifest;
     try {
-        const response = await fetch('backend/api.php?action=get_active_media');
-        if (response.status === 304) { setConnectionState(true); return; }
-        const data = await response.json();
+        const res = await fetch('backend/api.php?action=get_sync_manifest');
+        if (res.status === 304) { setConnectionState(true); return; }
+        manifest = await res.json();
         setConnectionState(true);
-        if (data.error) return;
-        if (JSON.stringify(data) !== JSON.stringify(playlist)) {
-            const isFirstLoad = playlist.length === 0;
-            // El orden puede legítimamente cambiar entre polls (foto agregada/
-            // borrada/reordenada). Si mantuviéramos el mismo currentIndex
-            // numérico, pasaría a apuntar a otra foto distinta y el slideshow
-            // repetiría o saltearía fotos sin terminar el ciclo completo.
-            // Ubicamos por id la foto que se está mostrando ahora mismo.
-            const currentId = playlist[currentIndex] ? playlist[currentIndex].id : null;
-            playlist = data;
-            if (playlist.length > 0) {
-                if (isFirstLoad) {
-                    currentIndex = 0; showNext();
-                } else {
-                    const preservedIdx = currentId !== null ? playlist.findIndex(p => p.id === currentId) : -1;
-                    currentIndex = preservedIdx >= 0 ? preservedIdx : 0;
-                }
-            }
-            else { display.innerHTML = '<h2 class="no-content">No hay contenido activo</h2>'; }
-        }
     } catch (e) {
-        console.error("Error playlist", e);
         setConnectionState(false);
+        return;
+    }
+    if (!manifest || manifest.error) return;
+    if (!isFirst && manifest.version_hash && manifest.version_hash === lastManifestHash) return;
+    lastManifestHash = manifest.version_hash || null;
+
+    if (manifest.settings) applySettings(manifest.settings);
+
+    if (Array.isArray(manifest.recordatorios)) {
+        recordatoriosCache = manifest.recordatorios;
+        recordatoriosUnseenCount = manifest.recordatorios.filter(r => !parseInt(r.visto)).length;
+        updateMessagesBadge();
+    }
+    if (Array.isArray(manifest.quick_show)) {
+        quickShowCache = manifest.quick_show;
+        quickShowCacheTs = Date.now();
+    }
+
+    const media = Array.isArray(manifest.media) ? manifest.media : [];
+    const mapped = media.map(m => ({
+        id: m.id,
+        ruta: m.ruta,
+        tipo: m.tipo,
+        duracion_img: m.duracion_img,
+        album_duracion: m.album_duracion,
+        animacion_tipo: m.animacion_tipo
+    }));
+
+    // El orden puede cambiar legítimamente entre syncs (foto agregada/borrada/
+    // reordenada). Ubicamos por id la foto que se está mostrando para no
+    // repetir/saltear al reemplazar la playlist.
+    if (JSON.stringify(mapped) !== JSON.stringify(playlist)) {
+        const wasEmpty = playlist.length === 0;
+        const currentId = playlist[currentIndex] ? playlist[currentIndex].id : null;
+        playlist = mapped;
+        if (playlist.length === 0) {
+            display.innerHTML = '<h2 class="no-content">No hay contenido activo</h2>';
+        } else if (wasEmpty) {
+            currentIndex = 0;
+            if (!visorOff) showNext();
+        } else {
+            const idx = currentId !== null ? playlist.findIndex(p => p.id === currentId) : -1;
+            currentIndex = idx >= 0 ? idx : 0;
+        }
+    }
+
+    // Precarga + limpieza del cache en segundo plano (no bloquea el primer cuadro).
+    const settings = manifest.settings || {};
+    setTimeout(() => precacheAndPrune(media, settings), isFirst ? 4000 : 500);
+}
+
+// Pide una vez cada archivo del álbum (+ la imagen de reposo). El Service
+// Worker lo baja del hosting si falta y lo guarda; si ya está, no toca la red.
+// Después le manda al SW la lista vigente para que borre lo que sobra.
+let precacheRunning = false;
+async function precacheAndPrune(media, settings) {
+    if (precacheRunning) return;
+    precacheRunning = true;
+    try {
+        const urls = media.map(m => m.ruta).filter(Boolean);
+        if (settings.visor_off_image) urls.push(settings.visor_off_image);
+
+        for (const u of urls) {
+            try { await fetch(u, { cache: 'no-store' }); } catch (e) { /* seguirá offline */ }
+        }
+
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'PRUNE_MEDIA', keep: urls });
+        }
+    } finally {
+        precacheRunning = false;
     }
 }
 
 function showNext() {
+    if (visorOff) return;
     if (quickShowActive) return;
     if (playlist.length === 0) return;
     const item = playlist[currentIndex];
@@ -566,6 +633,8 @@ function checkNightMode() {
     const enabled = currentSettings.night_mode_enabled === '1';
     const overlay = document.getElementById('night-overlay');
     if (!overlay) return;
+    // En reposo manda la imagen de reposo; el overlay de noche no debe taparla.
+    if (visorOff) { overlay.style.opacity = '0'; return; }
     if (!enabled) { overlay.style.opacity = '0'; return; }
     const now = new Date();
     const cur = now.getHours() * 60 + now.getMinutes();
@@ -577,9 +646,71 @@ function checkNightMode() {
     overlay.style.opacity = isNight ? '1' : '0';
 }
 
+// ─── HORARIO DE ENCENDIDO DEL VISOR ──────────────────────────────────────────
+// Fuera del horario configurado el Visor frena la reproducción (timers, video)
+// y muestra la imagen de reposo a pantalla completa. Distinto del Modo Noche,
+// que solo atenúa y sigue reproduciendo (y descargando) por detrás.
+
+function isWithinOffWindow(now, onStr, offStr) {
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const [onH, onM] = (onStr || '07:00').split(':').map(Number);
+    const [offH, offM] = (offStr || '23:00').split(':').map(Number);
+    const on = onH * 60 + onM;
+    const off = offH * 60 + offM;
+    if (on === off) return false;
+    const encendido = on < off ? (cur >= on && cur < off) : (cur >= on || cur < off);
+    return !encendido;
+}
+
+function checkVisorSchedule() {
+    const enabled = currentSettings.visor_schedule_enabled === '1';
+    const shouldRest = enabled && isWithinOffWindow(new Date(), currentSettings.visor_on, currentSettings.visor_off);
+    if (shouldRest && !visorOff) enterRestMode();
+    else if (!shouldRest && visorOff) exitRestMode();
+}
+
+function enterRestMode() {
+    visorOff = true;
+    clearTimeout(currentTimer);
+    if (currentVideoEl) { try { currentVideoEl.pause(); } catch (e) {} }
+    currentVideoEl = null;
+    if (quickShowActive) endQuickShow();   // el showNext() interno sale solo por el guard visorOff
+    closeRecordatoriosOverlay();
+    hideSoundButton();
+    hideEntryOverlay();   // si el Visor arrancó en horario de reposo, el overlay negro de inicio nunca se quitó
+    display.innerHTML = '';
+
+    const widget = document.getElementById('unified-widget');
+    if (widget) { widget.style.transition = 'opacity 0.5s ease'; widget.style.opacity = '0'; }
+    const msg = document.getElementById('messages-btn');
+    if (msg) msg.style.display = 'none';
+
+    if (restOverlayEl) {
+        restOverlayEl.innerHTML = '';
+        if (currentSettings.visor_off_image) {
+            const img = document.createElement('img');
+            img.src = currentSettings.visor_off_image;
+            restOverlayEl.appendChild(img);
+        }
+        restOverlayEl.classList.add('active');
+    }
+}
+
+function exitRestMode() {
+    visorOff = false;
+    if (restOverlayEl) { restOverlayEl.classList.remove('active'); restOverlayEl.innerHTML = ''; }
+    const widget = document.getElementById('unified-widget');
+    if (widget) widget.style.opacity = '1';
+    updateMessagesBadge();
+    checkNightMode();
+    currentIndex = 0;
+    showNext();
+}
+
 // ─── PASE RÁPIDO ─────────────────────────────────────────────────────────────
 
 async function startQuickShow() {
+    if (visorOff) return;
     if (quickShowActive) return;
     try {
         const now = Date.now();
@@ -746,6 +877,7 @@ function updateMessagesBadge() {
     const badge = document.getElementById('messages-badge');
     if (!wrap || !badge) return;
     if (quickShowActive) return; // hideWidgets() ya lo ocultó
+    if (visorOff) { wrap.style.display = 'none'; return; }
 
     // Sin mensajes (ni siquiera viejos), el ícono no tiene nada que ofrecer.
     if (recordatoriosCache.length === 0) { wrap.style.display = 'none'; return; }

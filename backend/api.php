@@ -88,6 +88,45 @@ try {
             sendCachedJson(json_encode($rows));
             break;
 
+        case 'get_sync_manifest':
+            // Todo lo que el Visor necesita para funcionar 100% offline, en un
+            // solo JSON. El Visor lo compara contra lo que ya tiene cacheado
+            // (por version_hash) y solo descarga del hosting los archivos
+            // nuevos o modificados. Es la base del "modo sync": cada foto/video
+            // viaja una única vez.
+            $stmt = $pdo->query("SELECT m.id, m.album_id, m.ruta, m.tipo, m.orden, m.duracion_img, a.duracion_default AS album_duracion, a.animacion_tipo FROM media m JOIN albums a ON m.album_id = a.id WHERE a.activo = 1 ORDER BY m.orden ASC, m.id ASC");
+            $media = [];
+            foreach ($stmt->fetchAll() as $row) {
+                $full = '../' . $row['ruta'];
+                $row['bytes'] = @filesize($full) ?: 0;
+                $row['mtime'] = @filemtime($full) ?: 0;
+                $row['ruta']  = bustCache($row['ruta']);
+                $media[] = $row;
+            }
+
+            $settings = [];
+            foreach ($pdo->query("SELECT clave, valor FROM settings")->fetchAll() as $row) {
+                $settings[$row['clave']] = $row['valor'];
+            }
+            // La imagen de reposo también se sirve desde uploads/ → el Service
+            // Worker la cachea igual que cualquier foto.
+            if (!empty($settings['visor_off_image'])) {
+                $settings['visor_off_image'] = bustCache($settings['visor_off_image']);
+            }
+
+            $recordatorios = $pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC")->fetchAll();
+            $quick_show    = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
+
+            $payload = [
+                'media'         => $media,
+                'settings'      => $settings,
+                'recordatorios' => $recordatorios,
+                'quick_show'    => $quick_show,
+            ];
+            $payload['version_hash'] = md5(json_encode($payload));
+            sendCachedJson(json_encode($payload));
+            break;
+
         case 'get_album_settings':
             $id = $_GET['id'] ?? 0;
             $stmt = $pdo->prepare("SELECT duracion_default, animacion_tipo FROM albums WHERE id = ?");
@@ -130,6 +169,16 @@ try {
                 $stmt = $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES (?, ?)");
                 $stmt->execute([$key, $value]);
             }
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'clear_rest_image':
+            $cur = $pdo->query("SELECT valor FROM settings WHERE clave = 'visor_off_image'")->fetchColumn();
+            if ($cur) {
+                $p = '../' . preg_replace('/\?.*$/', '', $cur);
+                if (file_exists($p)) @unlink($p);
+            }
+            $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES ('visor_off_image', '')")->execute();
             echo json_encode(['success' => true]);
             break;
 

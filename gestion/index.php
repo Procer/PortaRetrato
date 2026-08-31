@@ -17,7 +17,7 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-    <link rel="stylesheet" href="../assets/css/gestion.css">
+    <link rel="stylesheet" href="../assets/css/gestion.css?v=20260831">
 </head>
 <body>
     <div id="notification-container" class="notification-area"></div>
@@ -132,9 +132,9 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         <div class="glass-panel modal-content aura-modal">
             <button class="close-btn" onclick="closeModal('settings-modal')"><i class="fas fa-times"></i></button>
             <div class="modal-header"><h2>Ajustes del Slide</h2></div>
-            <div class="modal-section">
+            <div class="modal-section" style="max-height:65vh; overflow-y:auto; padding-right:8px;">
                 <p class="section-label">Duración (segundos)</p>
-                <div class="input-wrapper"><i class="fas fa-clock"></i><input type="number" id="slide-duration" min="1" max="60"></div>
+                <div class="input-wrapper"><i class="fas fa-clock"></i><input type="number" id="slide-duration" min="1" max="120"></div>
                 
                 <p class="section-label">Animación</p>
                 <div class="input-wrapper">
@@ -166,7 +166,45 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
                     </div>
                 </div>
 
-                <button onclick="saveSlideOnly()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:10px;">Guardar</button>
+                <div class="divider-aura"></div>
+
+                <p class="section-label">Horario de encendido del Visor</p>
+                <p style="font-size:0.75rem; color:#94a3b8; margin-bottom:8px;">Fuera de este horario el Visor frena la reproducción y muestra una imagen fija — así el hosting no vuelve a enviar nada. Distinto del Modo Noche, que solo atenúa y sigue reproduciendo.</p>
+                <div id="visor-schedule-control" class="segmented-control" style="width:fit-content;">
+                    <div class="segment-item selected" onclick="setSegmentValue('visor-schedule-val', '0', this)" data-value="0">SIEMPRE</div>
+                    <div class="segment-item" onclick="setSegmentValue('visor-schedule-val', '1', this)" data-value="1">POR HORARIO</div>
+                </div>
+                <input type="hidden" id="visor-schedule-val" value="0">
+                <div style="display:flex; gap:10px; margin-top:15px;">
+                    <div style="flex:1;">
+                        <p class="section-label">Enciende</p>
+                        <div class="input-wrapper"><i class="fas fa-sun"></i><input type="time" id="visor-on-input" value="07:00"></div>
+                    </div>
+                    <div style="flex:1;">
+                        <p class="section-label">Se apaga</p>
+                        <div class="input-wrapper"><i class="fas fa-moon"></i><input type="time" id="visor-off-input" value="23:00"></div>
+                    </div>
+                </div>
+
+                <p class="section-label" style="margin-top:15px;">Imagen de reposo</p>
+                <p style="font-size:0.75rem; color:#94a3b8; margin-bottom:8px;">Se muestra a pantalla completa mientras el Visor está apagado por horario. Sin imagen, queda en negro.</p>
+                <div id="rest-image-preview" style="display:none; margin-bottom:10px;">
+                    <img id="rest-image-thumb" src="" style="width:100%; max-height:140px; object-fit:cover; border-radius:12px;">
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button type="button" onclick="document.getElementById('rest-image-input').click()" class="btn-primary-aura" style="background:#f1f5f9; color:#0f172a; flex:1;">
+                        <i class="fas fa-image" style="margin-right:6px;"></i> Cargar imagen
+                    </button>
+                    <button type="button" id="rest-image-clear-btn" onclick="clearRestImage()" class="btn-primary-aura" style="background:#f1f5f9; color:#ef4444; flex:0 0 auto; display:none;">
+                        <i class="fas fa-trash-can"></i>
+                    </button>
+                </div>
+                <input type="file" id="rest-image-input" accept="image/*" hidden>
+                <div id="rest-image-progress" style="display:none; margin-top:8px;">
+                    <progress id="rest-image-bar" value="0" max="100" style="width:100%; height:8px; accent-color:var(--accent);"></progress>
+                </div>
+
+                <button onclick="saveSlideOnly()" class="btn-primary-aura" style="background:var(--accent-gradient); margin-top:20px;">Guardar</button>
             </div>
         </div>
     </div>
@@ -549,6 +587,6 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         .recordatorio-item .rec-meta { font-size: 0.68rem; color: #94a3b8; margin-top: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
         .recordatorio-item .rec-del { background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; flex-shrink: 0; }
     </style>
-    <script src="../assets/js/gestion.js"></script>
+    <script src="../assets/js/gestion.js?v=20260831"></script>
 </body>
 </html>

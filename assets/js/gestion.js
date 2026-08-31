@@ -244,6 +244,31 @@ async function openGeneralSettingsModal() {
     });
     document.getElementById('night-start-input').value = settings.night_start || '23:00';
     document.getElementById('night-end-input').value = settings.night_end || '07:00';
+
+    // Horario de encendido del Visor
+    const sched = settings.visor_schedule_enabled || '0';
+    document.getElementById('visor-schedule-val').value = sched;
+    document.querySelectorAll('#visor-schedule-control .segment-item').forEach(el => {
+        el.classList.toggle('selected', el.getAttribute('data-value') === sched);
+    });
+    document.getElementById('visor-on-input').value = settings.visor_on || '07:00';
+    document.getElementById('visor-off-input').value = settings.visor_off || '23:00';
+
+    // Imagen de reposo
+    const restImg = settings.visor_off_image || '';
+    const prev = document.getElementById('rest-image-preview');
+    const clr = document.getElementById('rest-image-clear-btn');
+    if (restImg) {
+        document.getElementById('rest-image-thumb').src = '../' + restImg.replace(/\?.*$/, '') + '?t=' + Date.now();
+        prev.style.display = 'block';
+        clr.style.display = 'inline-flex';
+    } else {
+        prev.style.display = 'none';
+        clr.style.display = 'none';
+    }
+    const ri = document.getElementById('rest-image-input');
+    ri.onchange = () => uploadRestImage(ri);
+
     document.getElementById('settings-modal').style.display = 'flex';
 }
 
@@ -253,13 +278,62 @@ async function saveSlideOnly() {
         slide_animation: document.getElementById('slide-animation').value,
         night_mode_enabled: document.getElementById('night-mode-val').value,
         night_start: document.getElementById('night-start-input').value,
-        night_end: document.getElementById('night-end-input').value
+        night_end: document.getElementById('night-end-input').value,
+        visor_schedule_enabled: document.getElementById('visor-schedule-val').value,
+        visor_on: document.getElementById('visor-on-input').value,
+        visor_off: document.getElementById('visor-off-input').value
     };
     const response = await fetch('../backend/api.php?action=update_weather_settings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
     });
     const result = await response.json();
     if (result.success) { showNotification("Slide guardado", "fa-save"); closeModal('settings-modal'); }
+}
+
+async function uploadRestImage(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const wrap = document.getElementById('rest-image-progress');
+    const bar = document.getElementById('rest-image-bar');
+    wrap.style.display = 'block';
+
+    const formData = new FormData();
+    formData.append('rest_image', '1');
+    formData.append('media[]', file);
+
+    try {
+        const resp = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '../backend/upload.php', true);
+            xhr.upload.onprogress = (e) => { if (e.lengthComputable && bar) bar.value = (e.loaded / e.total) * 100; };
+            xhr.onload = () => { try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(err); } };
+            xhr.onerror = reject;
+            xhr.send(formData);
+        });
+        wrap.style.display = 'none';
+        bar.value = 0;
+        input.value = '';
+        if (resp && resp.success) {
+            document.getElementById('rest-image-thumb').src = '../' + resp.ruta + '?t=' + Date.now();
+            document.getElementById('rest-image-preview').style.display = 'block';
+            document.getElementById('rest-image-clear-btn').style.display = 'inline-flex';
+            showNotification('Imagen de reposo cargada', 'fa-image');
+        } else {
+            showNotification((resp && resp.error) || 'No se pudo cargar la imagen', 'fa-triangle-exclamation');
+        }
+    } catch (e) {
+        wrap.style.display = 'none';
+        showNotification('Error al subir la imagen', 'fa-bug');
+    }
+}
+
+async function clearRestImage() {
+    showConfirm('¿Quitar imagen de reposo?', 'El Visor quedará en negro fuera del horario de encendido.', async () => {
+        await fetch('../backend/api.php?action=clear_rest_image');
+        document.getElementById('rest-image-preview').style.display = 'none';
+        document.getElementById('rest-image-clear-btn').style.display = 'none';
+        showNotification('Imagen de reposo quitada', 'fa-trash-can');
+    }, 'warning');
 }
 
 async function createAlbum() {

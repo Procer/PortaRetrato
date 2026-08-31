@@ -55,7 +55,12 @@ INSERT IGNORE INTO settings (clave, valor) VALUES
     ('weather_forecast_size', 'large'),
     -- Recordatorios familiares (nuevo 2026-07-15): segundos que dura el panel
     -- abierto en el Visor antes de cerrarse solo
-    ('recordatorios_duration', '20');
+    ('recordatorios_duration', '20'),
+    -- Horario de encendido del Visor + imagen de reposo (modo sync, 2026-08-27)
+    ('visor_schedule_enabled', '0'),
+    ('visor_on',               '07:00'),
+    ('visor_off',              '23:00'),
+    ('visor_off_image',        '');
 
 -- ------------------------------------------------------------
 -- 4. Nueva tabla para Recordatorios familiares (2026-07-15)

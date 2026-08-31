@@ -24,11 +24,15 @@
         Header set Cache-Control "public, max-age=2592000, immutable"
     </FilesMatch>
     <FilesMatch "\.(mp4|webm|ogg)$">
-        Header set Cache-Control "public, max-age=604800"
+        Header set Cache-Control "public, max-age=604800, immutable"
     </FilesMatch>
     <FilesMatch "\.(css|js)$">
         Header set Cache-Control "public, max-age=604800"
     </FilesMatch>
+    # El Service Worker nunca debe quedar cacheado: así los cambios se propagan.
+    <Files "sw.js">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+    </Files>
 </IfModule>
 
 # Soporte Range requests para videos (streaming / seek)
