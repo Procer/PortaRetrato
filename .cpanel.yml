@@ -1,0 +1,9 @@
+---
+# El repositorio de cPanel está clonado directamente en
+# /home/<usuario>/public_html/PortaRetrato, que es el mismo directorio
+# desde donde se sirve el sitio. "Actualizar desde remoto" ya deja los
+# archivos en su lugar, por eso el paso de deploy no necesita copiar nada.
+# Este archivo existe solo para que cPanel considere el deploy como válido.
+deployment:
+  tasks:
+    - /bin/true
