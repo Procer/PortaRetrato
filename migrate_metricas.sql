@@ -1,12 +1,16 @@
 -- Migración: Métricas de dispositivos (modo sync) — 2026-09-02
 -- Ejecutar en la BD antes de usar la pantalla "Diagnóstico" de Gestión.
 -- Solo crea la tabla si no existe: no toca datos.
+-- Si ya corriste esta migración antes del 2026-09-02 (sin quota_bytes /
+-- persistente), corré además migrate_metricas_v2.sql.
 
 CREATE TABLE IF NOT EXISTS dispositivos (
     device_id         VARCHAR(64) PRIMARY KEY,
     nombre            VARCHAR(80)  DEFAULT NULL,
     sw_activo         TINYINT(1)   DEFAULT 0,
-    cache_bytes       BIGINT UNSIGNED DEFAULT 0,   -- espacio total del origen en el equipo (storage.estimate)
+    cache_bytes       BIGINT UNSIGNED DEFAULT 0,   -- espacio total del origen en el equipo (storage.estimate().usage)
+    quota_bytes       BIGINT UNSIGNED DEFAULT 0,   -- cupo que el navegador le da al sitio (storage.estimate().quota)
+    persistente       TINYINT(1)   DEFAULT 0,      -- navigator.storage.persisted(): Chrome no expulsa el cache solo
     cache_archivos    INT          DEFAULT 0,      -- entradas de /uploads/ en el cache del Service Worker
     descarga_bytes    BIGINT UNSIGNED DEFAULT 0,   -- bytes realmente bajados del hosting (cache-miss) desde descarga_desde
     descarga_archivos INT          DEFAULT 0,

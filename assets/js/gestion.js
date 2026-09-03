@@ -972,12 +972,27 @@ function renderDeviceCard(d) {
         ? '<span class="dev-badge ok">álbum sincronizado</span>'
         : (sw && totalN > 0 ? '<span class="dev-badge warn">descargando…</span>' : '');
 
+    // Señal de thrash: bajó bastante más archivos que los del álbum y todavía no
+    // completó → el álbum no entra en el disco y Chrome expulsa el caché.
+    const dlN = parseInt(d.descarga_archivos) || 0;
+    const usa = Number(d.cache_bytes) || 0;
+    const cupo = Number(d.quota_bytes) || 0;
+    const cupoAjustado = cupo > 0 && usa / cupo > 0.85;
+    const thrash = sw && !completo && totalN > 0 && (dlN > totalN * 1.3 || cupoAjustado);
+    const thrashBadge = thrash
+        ? '<span class="dev-badge bad">⚠ re-descargando — poco disco</span>' : '';
+    const persistBadge = (sw && parseInt(d.persistente) !== 1)
+        ? '<span class="dev-badge warn">sin almacenamiento persistente</span>' : '';
+
     let desde = '';
     if (d.descarga_desde && Number(d.descarga_desde) > 0) {
         const dt = new Date(Number(d.descarga_desde));
         if (!isNaN(dt.getTime())) desde = ' · desde ' + dt.toLocaleDateString();
     }
     const ver = d.version_hash ? String(d.version_hash).slice(0, 8) : '—';
+    const espacio = cupo > 0
+        ? `${mFmtBytes(usa)} / ${mFmtBytes(cupo)}`
+        : mFmtBytes(usa);
 
     return `
     <div class="device-card">
@@ -985,11 +1000,11 @@ function renderDeviceCard(d) {
             <strong>${mEsc(nombre)}</strong>
             <span class="dev-ago">${mFmtAgo(d.ultimo_reporte)}</span>
         </div>
-        <div class="dev-badges">${swBadge} ${netBadge} ${syncBadge}</div>
+        <div class="dev-badges">${swBadge} ${netBadge} ${syncBadge} ${thrashBadge} ${persistBadge}</div>
         <div class="dev-grid">
             <div class="dev-stat"><span>Archivos en caché</span><b class="${completo ? 'g' : ''}">${cacheN} / ${totalN || '?'}</b></div>
-            <div class="dev-stat"><span>Espacio usado en el equipo</span><b>${mFmtBytes(d.cache_bytes)}</b></div>
-            <div class="dev-stat"><span>Descargado del hosting</span><b>${mFmtBytes(d.descarga_bytes)} · ${parseInt(d.descarga_archivos) || 0} arch.${desde}</b></div>
+            <div class="dev-stat"><span>Espacio en el equipo (usado / cupo)</span><b class="${cupoAjustado ? 'r' : ''}">${espacio}</b></div>
+            <div class="dev-stat"><span>Descargado del hosting</span><b>${mFmtBytes(d.descarga_bytes)} · ${dlN} arch.${desde}</b></div>
             <div class="dev-stat"><span>Versión de contenido</span><b>${mEsc(ver)}</b></div>
         </div>
     </div>`;

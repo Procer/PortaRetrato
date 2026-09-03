@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS dispositivos (
     nombre            VARCHAR(80)  DEFAULT NULL,
     sw_activo         TINYINT(1)   DEFAULT 0,
     cache_bytes       BIGINT UNSIGNED DEFAULT 0,
+    quota_bytes       BIGINT UNSIGNED DEFAULT 0,
+    persistente       TINYINT(1)   DEFAULT 0,
     cache_archivos    INT          DEFAULT 0,
     descarga_bytes    BIGINT UNSIGNED DEFAULT 0,
     descarga_archivos INT          DEFAULT 0,

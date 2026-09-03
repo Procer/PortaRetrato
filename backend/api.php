@@ -371,16 +371,18 @@ try {
             $ip = trim(explode(',', $ip)[0]);
             $stmt = $pdo->prepare(
                 "REPLACE INTO dispositivos
-                    (device_id, nombre, sw_activo, cache_bytes, cache_archivos,
+                    (device_id, nombre, sw_activo, cache_bytes, quota_bytes, persistente, cache_archivos,
                      descarga_bytes, descarga_archivos, descarga_desde, media_total,
                      version_hash, online, user_agent, ip, ultimo_reporte)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
             );
             $stmt->execute([
                 substr((string)$d['device_id'], 0, 64),
                 substr(trim((string)($d['nombre'] ?? '')), 0, 80) ?: null,
                 !empty($d['sw_activo']) ? 1 : 0,
                 (int)($d['cache_bytes'] ?? 0),
+                (int)($d['quota_bytes'] ?? 0),
+                !empty($d['persistente']) ? 1 : 0,
                 (int)($d['cache_archivos'] ?? 0),
                 (int)($d['descarga_bytes'] ?? 0),
                 (int)($d['descarga_archivos'] ?? 0),

@@ -635,8 +635,9 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         .dev-stat span { display: block; font-size: 0.6rem; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 3px; }
         .dev-stat b { font-size: 0.82rem; color: #0f172a; }
         .dev-stat b.g { color: #15803d; }
+        .dev-stat b.r { color: #b91c1c; }
         @media (max-width: 480px) { .dev-grid { grid-template-columns: 1fr; } }
     </style>
-    <script src="../assets/js/gestion.js?v=20260902"></script>
+    <script src="../assets/js/gestion.js?v=20260902b"></script>
 </body>
 </html>

@@ -43,6 +43,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW no registrado', e));
     }
+    // Almacenamiento persistente: sin esto, si al equipo le queda poco disco
+    // Chrome puede EXPULSAR todo el cache de media bajo presión → el Visor
+    // vuelve a descargar el álbum entero. Con persist() concedido, Chrome no lo
+    // borra solo (aunque una foto nueva puede fallar si el disco está realmente
+    // lleno). En un kiosco suele concederse sin preguntar.
+    if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persisted().then(p => {
+            if (!p) navigator.storage.persist().then(g => console.log('storage.persist:', g));
+        }).catch(() => {});
+    }
     restOverlayEl = document.getElementById('rest-overlay');
 
     await syncFromManifest(true);   // primera carga: aplica settings y arranca el slideshow
@@ -509,9 +519,16 @@ async function reportDeviceStats(force = false) {
     lastReportTs = now;
     try {
         const swActive = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
-        let cacheBytes = 0;
+        let cacheBytes = 0, quotaBytes = 0, persistente = 0;
         if (navigator.storage && navigator.storage.estimate) {
-            try { cacheBytes = (await navigator.storage.estimate()).usage || 0; } catch (e) { /* no soportado */ }
+            try {
+                const est = await navigator.storage.estimate();
+                cacheBytes = est.usage || 0;
+                quotaBytes = est.quota || 0;
+            } catch (e) { /* no soportado */ }
+        }
+        if (navigator.storage && navigator.storage.persisted) {
+            try { persistente = (await navigator.storage.persisted()) ? 1 : 0; } catch (e) {}
         }
         const sw = await askSwStats();
         const payload = {
@@ -519,6 +536,8 @@ async function reportDeviceStats(force = false) {
             nombre:            getDeviceName(),
             sw_activo:         swActive ? 1 : 0,
             cache_bytes:       cacheBytes,
+            quota_bytes:       quotaBytes,
+            persistente:       persistente,
             cache_archivos:    sw ? sw.cacheEntries : 0,
             descarga_bytes:    sw ? sw.dlBytes : 0,
             descarga_archivos: sw ? sw.dlCount : 0,
