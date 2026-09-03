@@ -18,7 +18,10 @@ const MEDIA_CACHE = 'pr-media-v1';
 // propio cache (clave sintética, nunca se pide a la red) para sobrevivir a los
 // reinicios del Service Worker. El Visor lo consulta con un mensaje GET_STATS
 // y lo reporta al backend para la pantalla "Diagnóstico" de Gestión.
-const STATS_URL = self.location.origin + '/__sw_stats__';
+// OJO: la clave se arma relativa a self.location (que incluye la subcarpeta
+// /PortaRetrato/), no a origin, para que coincida con las claves reales del
+// cache cuando el sitio NO está en la raíz del dominio.
+const STATS_URL = new URL('__sw_stats__', self.location).href;
 let stats = { dlBytes: 0, dlCount: 0, since: Date.now() };
 let statsReady = false;
 
@@ -59,16 +62,16 @@ self.addEventListener('fetch', (event) => {
     if (event.request.method === 'GET' &&
         url.origin === self.location.origin &&
         url.pathname.includes('/uploads/')) {
-        event.respondWith(serveMedia(event.request));
+        event.respondWith(serveMedia(event));
     }
     // Cualquier otra petición: comportamiento por defecto (red).
 });
 
-async function serveMedia(request) {
+async function serveMedia(event) {
     const cache = await caches.open(MEDIA_CACHE);
     // La clave incluye el ?v=<mtime>: si el archivo se reemplazó en el servidor
     // (p.ej. una foto rotada), la URL cambia y se vuelve a descargar una vez.
-    const key = request.url;
+    const key = event.request.url;
 
     const cached = await cache.match(key);
     if (cached) return cached;
@@ -79,11 +82,16 @@ async function serveMedia(request) {
         if (netResp && netResp.status === 200) {
             await cache.put(key, netResp.clone());
             // Consumo real: este archivo viajó del hosting al equipo esta vez.
+            // La persistencia va por event.waitUntil: si fuera sin await, el SW
+            // puede morir apenas responde el <img> y el contador nunca se guarda.
             await loadStats();
-            const len = parseInt(netResp.headers.get('content-length') || '0', 10);
-            stats.dlBytes += Number.isFinite(len) ? len : 0;
+            let len = parseInt(netResp.headers.get('content-length') || '0', 10);
+            if (!Number.isFinite(len) || len <= 0) {
+                try { len = (await netResp.clone().blob()).size; } catch (e) { len = 0; }
+            }
+            stats.dlBytes += len;
             stats.dlCount += 1;
-            saveStats(); // sin await: no bloquea la respuesta al <img>/<video>
+            event.waitUntil(saveStats());
         }
         return netResp; // 200 recién bajado, o 404/5xx → lo maneja el Visor (onerror salta al siguiente)
     } catch (e) {
@@ -105,7 +113,12 @@ self.addEventListener('message', (event) => {
     if (data.type === 'PRUNE_MEDIA' && Array.isArray(data.keep)) {
         event.waitUntil((async () => {
             const cache = await caches.open(MEDIA_CACHE);
-            const keep = new Set(data.keep.map(u => new URL(u, self.location.origin).href));
+            // Las rutas del manifest son relativas ("uploads/x?v=1"). Hay que
+            // resolverlas contra self.location (incluye la subcarpeta), NO contra
+            // origin: si no, en un sitio bajo /PortaRetrato/ el set "keep" queda
+            // con URLs .../uploads/... que nunca matchean las claves reales
+            // .../PortaRetrato/uploads/... y el prune borra TODO lo recién bajado.
+            const keep = new Set(data.keep.map(u => new URL(u, self.location).href));
             const keys = await cache.keys();
             // STATS_URL no está en el álbum pero no debe borrarse nunca.
             await Promise.all(keys.map(k =>
