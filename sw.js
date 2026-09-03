@@ -80,20 +80,30 @@ async function serveMedia(event) {
         // Se pide el archivo COMPLETO (sin cabecera Range) para guardarlo entero.
         const netResp = await fetch(key, { cache: 'no-store' });
         if (netResp && netResp.status === 200) {
-            await cache.put(key, netResp.clone());
-            // Consumo real: este archivo viajó del hosting al equipo esta vez.
-            // La persistencia va por event.waitUntil: si fuera sin await, el SW
-            // puede morir apenas responde el <img> y el contador nunca se guarda.
-            await loadStats();
-            let len = parseInt(netResp.headers.get('content-length') || '0', 10);
-            if (!Number.isFinite(len) || len <= 0) {
-                try { len = (await netResp.clone().blob()).size; } catch (e) { len = 0; }
+            // Guarda SOLO si es de verdad una imagen/video. Si el hosting mete un
+            // filtro de seguridad ("One moment, please…") la respuesta es un 200
+            // con text/html: NO se cachea (si no, la foto queda envenenada y
+            // falla para siempre) ni se cuenta. El <img> hará onerror y se
+            // reintenta en la próxima vuelta, ya con la cookie de seguridad OK.
+            const ct = (netResp.headers.get('content-type') || '').toLowerCase();
+            const esMedia = ct.startsWith('image/') || ct.startsWith('video/') ||
+                            ct.startsWith('audio/') || ct === 'application/octet-stream' || ct === '';
+            if (esMedia) {
+                await cache.put(key, netResp.clone());
+                // Consumo real: este archivo viajó del hosting al equipo esta vez.
+                // La persistencia va por event.waitUntil: si fuera sin await, el
+                // SW puede morir apenas responde el <img> y el contador se pierde.
+                await loadStats();
+                let len = parseInt(netResp.headers.get('content-length') || '0', 10);
+                if (!Number.isFinite(len) || len <= 0) {
+                    try { len = (await netResp.clone().blob()).size; } catch (e) { len = 0; }
+                }
+                stats.dlBytes += len;
+                stats.dlCount += 1;
+                event.waitUntil(saveStats());
             }
-            stats.dlBytes += len;
-            stats.dlCount += 1;
-            event.waitUntil(saveStats());
         }
-        return netResp; // 200 recién bajado, o 404/5xx → lo maneja el Visor (onerror salta al siguiente)
+        return netResp; // 200 media recién bajado, HTML de seguridad, o 404/5xx → onerror en el Visor
     } catch (e) {
         return new Response('', { status: 504, statusText: 'Sin conexion y sin cache' });
     }

@@ -414,6 +414,11 @@ async function syncFromManifest(isFirst = false) {
     try {
         const res = await fetch('backend/api.php?action=get_sync_manifest');
         if (res.status === 304) { setConnectionState(true); return; }
+        // Si el hosting metió el filtro de seguridad ("One moment, please…") la
+        // respuesta es un 200 con text/html en vez del JSON. No es "estar online":
+        // se trata como caída para no romper el estado ni intentar parsear HTML.
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('json')) { setConnectionState(false); return; }
         manifest = await res.json();
         setConnectionState(true);
     } catch (e) {
