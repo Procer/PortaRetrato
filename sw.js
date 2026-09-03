@@ -13,6 +13,37 @@
 
 const MEDIA_CACHE = 'pr-media-v1';
 
+// Contador de consumo real: solo suma cuando el SW tuvo que ir a la red a
+// buscar un archivo que NO estaba en cache (cache-miss). Se guarda dentro del
+// propio cache (clave sintética, nunca se pide a la red) para sobrevivir a los
+// reinicios del Service Worker. El Visor lo consulta con un mensaje GET_STATS
+// y lo reporta al backend para la pantalla "Diagnóstico" de Gestión.
+const STATS_URL = self.location.origin + '/__sw_stats__';
+let stats = { dlBytes: 0, dlCount: 0, since: Date.now() };
+let statsReady = false;
+
+async function loadStats() {
+    if (statsReady) return;
+    statsReady = true;
+    try {
+        const cache = await caches.open(MEDIA_CACHE);
+        const r = await cache.match(STATS_URL);
+        if (r) {
+            const s = await r.json();
+            if (s && typeof s.dlBytes === 'number') stats = s;
+        }
+    } catch (e) { /* arranca de cero */ }
+}
+
+async function saveStats() {
+    try {
+        const cache = await caches.open(MEDIA_CACHE);
+        await cache.put(STATS_URL, new Response(JSON.stringify(stats), {
+            headers: { 'Content-Type': 'application/json' }
+        }));
+    } catch (e) { /* sin persistencia, se vuelve a contar tras reiniciar */ }
+}
+
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
@@ -47,6 +78,12 @@ async function serveMedia(request) {
         const netResp = await fetch(key, { cache: 'no-store' });
         if (netResp && netResp.status === 200) {
             await cache.put(key, netResp.clone());
+            // Consumo real: este archivo viajó del hosting al equipo esta vez.
+            await loadStats();
+            const len = parseInt(netResp.headers.get('content-length') || '0', 10);
+            stats.dlBytes += Number.isFinite(len) ? len : 0;
+            stats.dlCount += 1;
+            saveStats(); // sin await: no bloquea la respuesta al <img>/<video>
         }
         return netResp; // 200 recién bajado, o 404/5xx → lo maneja el Visor (onerror salta al siguiente)
     } catch (e) {
@@ -60,13 +97,37 @@ async function serveMedia(request) {
 
 self.addEventListener('message', (event) => {
     const data = event.data || {};
+    const reply = (msg) => {
+        if (event.ports && event.ports[0]) event.ports[0].postMessage(msg);
+        else if (event.source) event.source.postMessage(msg);
+    };
+
     if (data.type === 'PRUNE_MEDIA' && Array.isArray(data.keep)) {
         event.waitUntil((async () => {
             const cache = await caches.open(MEDIA_CACHE);
             const keep = new Set(data.keep.map(u => new URL(u, self.location.origin).href));
             const keys = await cache.keys();
-            await Promise.all(keys.map(k => keep.has(k.url) ? Promise.resolve() : cache.delete(k)));
-            if (event.source) event.source.postMessage({ type: 'PRUNE_DONE', kept: keep.size });
+            // STATS_URL no está en el álbum pero no debe borrarse nunca.
+            await Promise.all(keys.map(k =>
+                (keep.has(k.url) || k.url === STATS_URL) ? Promise.resolve() : cache.delete(k)
+            ));
+            reply({ type: 'PRUNE_DONE', kept: keep.size });
+        })());
+    }
+
+    if (data.type === 'GET_STATS') {
+        event.waitUntil((async () => {
+            await loadStats();
+            const cache = await caches.open(MEDIA_CACHE);
+            const keys = await cache.keys();
+            const cacheEntries = keys.filter(k => k.url.includes('/uploads/')).length;
+            reply({
+                type: 'STATS',
+                dlBytes: stats.dlBytes,
+                dlCount: stats.dlCount,
+                since: stats.since,
+                cacheEntries
+            });
         })());
     }
 });

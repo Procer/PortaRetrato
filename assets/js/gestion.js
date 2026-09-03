@@ -853,3 +853,144 @@ function copyQRUrl() {
         showNotification('No se pudo copiar', 'fa-triangle-exclamation');
     });
 }
+
+// ─── DIAGNÓSTICO / MÉTRICAS DE DISPOSITIVOS ──────────────────────────────────
+
+function openMetricsModal() {
+    document.getElementById('metrics-modal').style.display = 'flex';
+    loadDeviceMetrics();
+}
+
+function mFmtBytes(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+}
+
+function mParseDate(sql) {
+    if (!sql) return NaN;
+    // "2026-09-02 14:03:11" → timestamp local
+    const t = new Date(String(sql).replace(' ', 'T')).getTime();
+    return isNaN(t) ? NaN : t;
+}
+
+function mFmtAgo(sql) {
+    const t = mParseDate(sql);
+    if (isNaN(t)) return sql || 'nunca';
+    let s = Math.floor((Date.now() - t) / 1000);
+    if (s < 0) s = 0;
+    if (s < 60) return 'hace ' + s + ' s';
+    if (s < 3600) return 'hace ' + Math.floor(s / 60) + ' min';
+    if (s < 86400) return 'hace ' + Math.floor(s / 3600) + ' h';
+    return 'hace ' + Math.floor(s / 86400) + ' días';
+}
+
+function mEsc(s) {
+    return String(s).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+}
+
+async function loadDeviceMetrics() {
+    const list = document.getElementById('metrics-list');
+    const empty = document.getElementById('metrics-empty');
+    const summary = document.getElementById('metrics-summary');
+    list.innerHTML = '<p style="text-align:center; color:#94a3b8; font-size:0.8rem; padding:20px;">Cargando...</p>';
+    summary.style.display = 'none';
+    empty.style.display = 'none';
+
+    let devices;
+    try {
+        const res = await fetch('../backend/api.php?action=get_devices');
+        devices = await res.json();
+    } catch (e) {
+        list.innerHTML = '<p style="text-align:center; color:#ef4444; font-size:0.8rem; padding:20px;">Error al cargar</p>';
+        return;
+    }
+
+    if (!Array.isArray(devices) || devices.length === 0) {
+        list.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+    }
+
+    const totBytes = devices.reduce((a, d) => a + (Number(d.descarga_bytes) || 0), 0);
+    const totArch = devices.reduce((a, d) => a + (Number(d.descarga_archivos) || 0), 0);
+
+    // Barra: consumo acumulado (aprox.) contra el tope deseado de 100 GB/mes.
+    // El color va de verde (hue 130) a rojo (hue 0) a medida que se acerca al tope.
+    const LIMITE_GB = 100;
+    const totGB = totBytes / 1073741824;
+    const pct = Math.min(100, (totGB / LIMITE_GB) * 100);
+    const hue = Math.max(0, 130 * (1 - pct / 100));
+    const col = `hsl(${hue.toFixed(0)}, 72%, 45%)`;
+    const excedido = totGB > LIMITE_GB;
+    const gbTxt = totGB < 0.01 ? '<0,01' : totGB.toFixed(totGB < 10 ? 2 : 1);
+
+    summary.innerHTML = `
+    <div class="metrics-total">
+        <div>Descargado del hosting<small>Suma de ${devices.length} equipo(s), acumulado desde el último reinicio de cada uno</small></div>
+        <div style="text-align:right; font-size:1.05rem;">${mFmtBytes(totBytes)}<small>${totArch} archivos</small></div>
+    </div>
+    <div class="metrics-bar-wrap">
+        <div class="metrics-bar-head">
+            <span>Consumo vs. tope</span>
+            <small>${gbTxt} GB de ${LIMITE_GB} GB${excedido ? ' &middot; ⚠ excedido' : ''}</small>
+        </div>
+        <div class="metrics-bar-track">
+            <div class="metrics-bar-fill" style="width:${pct.toFixed(1)}%; background-color:${col};"></div>
+        </div>
+        <div class="metrics-bar-foot">${pct < 0.1 ? '0' : pct.toFixed(1)}% del tope &mdash; el consumo mensual exacto está en cPanel &rarr; Ancho de banda.</div>
+    </div>`;
+    summary.style.display = 'block';
+
+    list.innerHTML = devices.map(renderDeviceCard).join('');
+}
+
+function renderDeviceCard(d) {
+    const sw = parseInt(d.sw_activo) === 1;
+    const lastMs = Date.now() - mParseDate(d.ultimo_reporte);
+    const vivo = !isNaN(lastMs) && lastMs < 15 * 60 * 1000;
+    const online = parseInt(d.online) === 1;
+    const cacheN = parseInt(d.cache_archivos) || 0;
+    const totalN = parseInt(d.media_total) || 0;
+    const completo = totalN > 0 && cacheN >= totalN;
+    const nombre = (d.nombre && d.nombre.trim())
+        ? d.nombre.trim()
+        : 'Dispositivo ' + String(d.device_id || '').slice(0, 6);
+
+    const swBadge = sw
+        ? '<span class="dev-badge ok"><i class="fas fa-check"></i> Service Worker activo</span>'
+        : '<span class="dev-badge bad"><i class="fas fa-triangle-exclamation"></i> SW inactivo — sin ahorro</span>';
+    const netBadge = !vivo
+        ? '<span class="dev-badge bad">sin señal</span>'
+        : (online ? '<span class="dev-badge ok">en línea</span>'
+                  : '<span class="dev-badge warn">sin conexión</span>');
+    const syncBadge = completo
+        ? '<span class="dev-badge ok">álbum sincronizado</span>'
+        : (sw && totalN > 0 ? '<span class="dev-badge warn">descargando…</span>' : '');
+
+    let desde = '';
+    if (d.descarga_desde && Number(d.descarga_desde) > 0) {
+        const dt = new Date(Number(d.descarga_desde));
+        if (!isNaN(dt.getTime())) desde = ' · desde ' + dt.toLocaleDateString();
+    }
+    const ver = d.version_hash ? String(d.version_hash).slice(0, 8) : '—';
+
+    return `
+    <div class="device-card">
+        <div class="dev-head">
+            <strong>${mEsc(nombre)}</strong>
+            <span class="dev-ago">${mFmtAgo(d.ultimo_reporte)}</span>
+        </div>
+        <div class="dev-badges">${swBadge} ${netBadge} ${syncBadge}</div>
+        <div class="dev-grid">
+            <div class="dev-stat"><span>Archivos en caché</span><b class="${completo ? 'g' : ''}">${cacheN} / ${totalN || '?'}</b></div>
+            <div class="dev-stat"><span>Espacio usado en el equipo</span><b>${mFmtBytes(d.cache_bytes)}</b></div>
+            <div class="dev-stat"><span>Descargado del hosting</span><b>${mFmtBytes(d.descarga_bytes)} · ${parseInt(d.descarga_archivos) || 0} arch.${desde}</b></div>
+            <div class="dev-stat"><span>Versión de contenido</span><b>${mEsc(ver)}</b></div>
+        </div>
+    </div>`;
+}

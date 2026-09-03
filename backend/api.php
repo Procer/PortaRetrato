@@ -353,6 +353,47 @@ try {
             echo json_encode(['success' => true]);
             break;
 
+        // ─── MÉTRICAS DE DISPOSITIVOS (modo sync) ──────────────────────────
+        case 'get_devices':
+            // Para la pantalla "Diagnóstico" de Gestión.
+            echo json_encode($pdo->query("SELECT * FROM dispositivos ORDER BY ultimo_reporte DESC")->fetchAll());
+            break;
+
+        case 'report_device_stats':
+            // Cada Visor reporta su estado cada ~5 min. REPLACE = un renglón por
+            // equipo (device_id es PK), siempre con el último dato.
+            $d = json_decode(file_get_contents('php://input'), true);
+            if (!is_array($d) || empty($d['device_id'])) {
+                echo json_encode(['error' => 'Falta device_id']);
+                break;
+            }
+            $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+            $ip = trim(explode(',', $ip)[0]);
+            $stmt = $pdo->prepare(
+                "REPLACE INTO dispositivos
+                    (device_id, nombre, sw_activo, cache_bytes, cache_archivos,
+                     descarga_bytes, descarga_archivos, descarga_desde, media_total,
+                     version_hash, online, user_agent, ip, ultimo_reporte)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
+            );
+            $stmt->execute([
+                substr((string)$d['device_id'], 0, 64),
+                substr(trim((string)($d['nombre'] ?? '')), 0, 80) ?: null,
+                !empty($d['sw_activo']) ? 1 : 0,
+                (int)($d['cache_bytes'] ?? 0),
+                (int)($d['cache_archivos'] ?? 0),
+                (int)($d['descarga_bytes'] ?? 0),
+                (int)($d['descarga_archivos'] ?? 0),
+                (int)($d['descarga_desde'] ?? 0),
+                (int)($d['media_total'] ?? 0),
+                substr((string)($d['version_hash'] ?? ''), 0, 40) ?: null,
+                !empty($d['online']) ? 1 : 0,
+                substr((string)($d['ua'] ?? ''), 0, 255) ?: null,
+                substr($ip, 0, 45) ?: null,
+            ]);
+            echo json_encode(['success' => true]);
+            break;
+
         default:
             echo json_encode(['error' => 'Acción no válida']);
             break;

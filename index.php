@@ -59,6 +59,6 @@
         </div>
     </div>
 
-    <script src="assets/js/viewer.js?v=20260831"></script>
+    <script src="assets/js/viewer.js?v=20260902"></script>
 </body>
 </html>

@@ -58,6 +58,7 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         <div class="tab-item" onclick="openRecordatoriosModal()" title="Mensajes familiares"><i class="fas fa-note-sticky"></i></div>
         <div class="tab-item" onclick="togglePreviewModal()" title="Vista previa inline"><i class="fas fa-eye"></i></div>
         <div class="tab-item" onclick="openQRModal()" title="Compartir enlace QR"><i class="fas fa-qrcode"></i></div>
+        <div class="tab-item" onclick="openMetricsModal()" title="Diagnóstico / consumo de datos"><i class="fas fa-heart-pulse"></i></div>
         <div class="tab-item" onclick="window.open('../', '_blank')" title="Ver Visor"><i class="fas fa-tv"></i></div>
     </nav>
 
@@ -500,6 +501,30 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         </div>
     </div>
 
+    <!-- MODAL DIAGNÓSTICO / MÉTRICAS -->
+    <div id="metrics-modal" class="modal-overlay" style="display:none;">
+        <div class="glass-panel modal-content aura-modal" style="max-width:560px;">
+            <button class="close-btn" onclick="closeModal('metrics-modal')"><i class="fas fa-times"></i></button>
+            <div class="modal-header" style="display:flex; align-items:center; gap:12px;">
+                <h2><i class="fas fa-heart-pulse" style="color:var(--accent); font-size:1rem; margin-right:6px;"></i> Diagnóstico</h2>
+                <button onclick="loadDeviceMetrics()" class="btn-action-round" title="Actualizar" style="width:36px; height:36px;"><i class="fas fa-rotate"></i></button>
+            </div>
+            <div class="modal-section" style="max-height:65vh; overflow-y:auto; padding-right:8px;">
+                <div style="background:#f8fafc; border-left:3px solid var(--accent); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.78rem; color:#475569; line-height:1.6;">
+                    Cada portarretrato reporta su estado cada ~5 min.
+                    <strong style="color:#0f172a;">Si el Service Worker está activo y "archivos en caché" iguala a los del álbum, el hosting ya no reenvía fotos.</strong><br>
+                    El consumo mensual real y el tope de <strong>100&nbsp;GB</strong> se controlan en cPanel → Ancho de banda.
+                </div>
+                <div id="metrics-summary" style="display:none;"></div>
+                <div id="metrics-list"></div>
+                <div id="metrics-empty" style="text-align:center; padding:35px 20px; color:#94a3b8; display:none;">
+                    <i class="fas fa-heart-pulse" style="font-size:2.5rem; margin-bottom:14px; opacity:0.2; display:block;"></i>
+                    <p style="font-size:0.85rem;">Ningún dispositivo reportó todavía.<br>Abrí el Visor en el portarretrato y esperá unos minutos.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="confirm-modal" class="modal-overlay" style="display:none;">
         <div class="glass-panel modal-content aura-modal" style="text-align: center;">
             <h2 id="confirm-title">¿Seguro?</h2>
@@ -586,7 +611,32 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         .recordatorio-item .rec-msg { font-weight: 600; color: #0f172a; font-size: 0.85rem; word-break: break-word; }
         .recordatorio-item .rec-meta { font-size: 0.68rem; color: #94a3b8; margin-top: 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; }
         .recordatorio-item .rec-del { background: none; border: none; color: #ef4444; cursor: pointer; padding: 6px; flex-shrink: 0; }
+
+        /* DIAGNÓSTICO / MÉTRICAS */
+        .metrics-total { background: #0f172a; color: white; border-radius: 14px 14px 0 0; padding: 12px 16px; font-size: 0.8rem; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+        .metrics-total small { display: block; font-size: 0.62rem; opacity: 0.6; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+        .metrics-bar-wrap { background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 14px 14px; padding: 14px 16px; margin-bottom: 14px; }
+        .metrics-bar-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 0.8rem; font-weight: 800; color: #0f172a; }
+        .metrics-bar-head small { font-size: 0.66rem; color: #94a3b8; font-weight: 700; }
+        .metrics-bar-track { height: 14px; background: #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .metrics-bar-fill { height: 100%; border-radius: 8px; min-width: 2px; transition: width 0.5s ease, background-color 0.5s ease; }
+        .metrics-bar-foot { margin-top: 6px; font-size: 0.66rem; color: #64748b; font-weight: 600; }
+        .device-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 14px 16px; margin-bottom: 12px; }
+        .dev-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+        .dev-head strong { font-size: 0.95rem; color: #0f172a; word-break: break-word; }
+        .dev-ago { font-size: 0.66rem; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+        .dev-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .dev-badge { font-size: 0.64rem; font-weight: 800; padding: 4px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+        .dev-badge.ok { background: #dcfce7; color: #15803d; }
+        .dev-badge.warn { background: #fef9c3; color: #a16207; }
+        .dev-badge.bad { background: #fee2e2; color: #b91c1c; }
+        .dev-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .dev-stat { background: white; border: 1px solid #eef2f7; border-radius: 10px; padding: 8px 10px; }
+        .dev-stat span { display: block; font-size: 0.6rem; color: #94a3b8; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 3px; }
+        .dev-stat b { font-size: 0.82rem; color: #0f172a; }
+        .dev-stat b.g { color: #15803d; }
+        @media (max-width: 480px) { .dev-grid { grid-template-columns: 1fr; } }
     </style>
-    <script src="../assets/js/gestion.js?v=20260831"></script>
+    <script src="../assets/js/gestion.js?v=20260902"></script>
 </body>
 </html>

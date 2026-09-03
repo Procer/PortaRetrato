@@ -75,6 +75,30 @@ CREATE TABLE IF NOT EXISTS recordatorios (
     visto          TINYINT(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ------------------------------------------------------------
+-- 5. Nueva tabla para Métricas de dispositivos (2026-09-02)
+--    Alimenta la pantalla "Diagnóstico" de Gestión: estado del
+--    Service Worker, archivos en caché y bytes bajados del hosting
+--    por cada portarretrato. (si ya existe, no hace nada)
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS dispositivos (
+    device_id         VARCHAR(64) PRIMARY KEY,
+    nombre            VARCHAR(80)  DEFAULT NULL,
+    sw_activo         TINYINT(1)   DEFAULT 0,
+    cache_bytes       BIGINT UNSIGNED DEFAULT 0,
+    cache_archivos    INT          DEFAULT 0,
+    descarga_bytes    BIGINT UNSIGNED DEFAULT 0,
+    descarga_archivos INT          DEFAULT 0,
+    descarga_desde    BIGINT UNSIGNED DEFAULT 0,
+    media_total       INT          DEFAULT 0,
+    version_hash      VARCHAR(40)  DEFAULT NULL,
+    online            TINYINT(1)   DEFAULT 0,
+    user_agent        VARCHAR(255) DEFAULT NULL,
+    ip                VARCHAR(45)  DEFAULT NULL,
+    ultimo_reporte    DATETIME     DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ============================================================
 --  Listo. Tus datos existentes no se tocaron.
 -- ============================================================

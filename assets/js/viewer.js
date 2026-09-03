@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkNightMode();
 
     setInterval(syncFromManifest, SYNC_INTERVAL);
+    setInterval(reportDeviceStats, 5 * 60 * 1000);   // métricas para "Diagnóstico" de Gestión
     setInterval(loadRecordatorios, 60000);   // los mensajes familiares siguen casi en vivo
     setInterval(loadWeatherData, 1800000);
     setInterval(rotateWeather, 8000);
@@ -456,6 +457,83 @@ async function syncFromManifest(isFirst = false) {
     // Precarga + limpieza del cache en segundo plano (no bloquea el primer cuadro).
     const settings = manifest.settings || {};
     setTimeout(() => precacheAndPrune(media, settings), isFirst ? 4000 : 500);
+
+    // Reporte de métricas al backend (pantalla "Diagnóstico" de Gestión). En la
+    // primera carga se da tiempo a que arranque la precarga; después va con
+    // throttle propio.
+    setTimeout(() => reportDeviceStats(isFirst), isFirst ? 9000 : 1500);
+}
+
+// ─── MÉTRICAS DEL DISPOSITIVO ────────────────────────────────────────────────
+// El Visor le cuenta al backend cómo está funcionando el modo sync en este
+// equipo: si el Service Worker está activo, cuántos archivos tiene cacheados,
+// cuánto espacio ocupan y cuántos bytes bajó realmente del hosting. Es
+// telemetría: si algo falla, se ignora en silencio.
+function getDeviceId() {
+    let id = localStorage.getItem('pr_device_id');
+    if (!id) {
+        id = (self.crypto && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        localStorage.setItem('pr_device_id', id);
+    }
+    return id;
+}
+
+// Nombre legible del portarretrato. Se fija abriendo el Visor una vez con
+// ?name=Living (queda guardado); si no, va vacío y Gestión muestra el id corto.
+function getDeviceName() {
+    const q = new URLSearchParams(location.search).get('name');
+    if (q) localStorage.setItem('pr_device_name', q.slice(0, 80));
+    return localStorage.getItem('pr_device_name') || '';
+}
+
+function askSwStats(timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve(null);
+        let done = false;
+        const finish = (v) => { if (!done) { done = true; resolve(v); } };
+        const ch = new MessageChannel();
+        const to = setTimeout(() => finish(null), timeoutMs);
+        ch.port1.onmessage = (e) => { clearTimeout(to); finish(e.data || null); };
+        try {
+            navigator.serviceWorker.controller.postMessage({ type: 'GET_STATS' }, [ch.port2]);
+        } catch (e) { clearTimeout(to); finish(null); }
+    });
+}
+
+let lastReportTs = 0;
+async function reportDeviceStats(force = false) {
+    const now = Date.now();
+    if (!force && now - lastReportTs < 5 * 60 * 1000) return;
+    lastReportTs = now;
+    try {
+        const swActive = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+        let cacheBytes = 0;
+        if (navigator.storage && navigator.storage.estimate) {
+            try { cacheBytes = (await navigator.storage.estimate()).usage || 0; } catch (e) { /* no soportado */ }
+        }
+        const sw = await askSwStats();
+        const payload = {
+            device_id:         getDeviceId(),
+            nombre:            getDeviceName(),
+            sw_activo:         swActive ? 1 : 0,
+            cache_bytes:       cacheBytes,
+            cache_archivos:    sw ? sw.cacheEntries : 0,
+            descarga_bytes:    sw ? sw.dlBytes : 0,
+            descarga_archivos: sw ? sw.dlCount : 0,
+            descarga_desde:    sw ? sw.since : 0,
+            media_total:       playlist.length,
+            version_hash:      lastManifestHash || '',
+            online:            navigator.onLine ? 1 : 0,
+            ua:                navigator.userAgent.slice(0, 255)
+        };
+        await fetch('backend/api.php?action=report_device_stats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+    } catch (e) { /* telemetría: nunca rompe el Visor */ }
 }
 
 // Pide una vez cada archivo del álbum (+ la imagen de reposo). El Service
