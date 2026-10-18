@@ -3,12 +3,19 @@
 # reabierto automaticamente si se cierra o se cae.
 URL="http://127.0.0.1:8080/"
 CHROMIUM_FLAGS=""
+ROTATE="left"   # normal | left | right | inverted  (pantalla en vertical; se cambia en /etc/default/portaretrato)
 [ -f /etc/default/portaretrato ] && . /etc/default/portaretrato
 
 # Sin salvapantallas ni ahorro de energia de pantalla
 xset s off
 xset -dpms
 xset s noblank
+
+# Rotar la pantalla (monitor en vertical)
+if [ "$ROTATE" != "normal" ]; then
+    OUT="$(xrandr 2>/dev/null | awk '/ connected/{print $1; exit}')"
+    [ -n "$OUT" ] && xrandr --output "$OUT" --rotate "$ROTATE"
+fi
 
 openbox &
 unclutter -idle 0.1 -root &

@@ -32,7 +32,9 @@ return " . var_export(["remote" => getenv("PR_REMOTE"), "token" => getenv("PR_TO
 chmod 640 "$APP/backend/mirror.config.php"
 chown -R "$USER_NAME:$USER_NAME" "$APP"
 [ -f /etc/default/portaretrato ] || echo '# Opciones extra para Chromium, ej: --disable-gpu (si la placa de video da problemas)
-CHROMIUM_FLAGS=""' > /etc/default/portaretrato
+CHROMIUM_FLAGS=""
+# Orientacion de la pantalla: normal | left | right | inverted
+ROTATE="left"' > /etc/default/portaretrato
 
 # ─── Servicios ───────────────────────────────────────────────────────────────
 cat > /etc/systemd/system/portaretrato-server.service <<EOF
