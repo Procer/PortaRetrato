@@ -9,14 +9,30 @@ if (isset($_SESSION['gestion_auth']) && $_SESSION['gestion_auth'] === true) {
 
 $error = '';
 
+// Freno a la fuerza bruta: 5 fallos por IP cada 15 minutos.
+$ip = preg_replace('/[^0-9a-f:.]/i', '', $_SERVER['REMOTE_ADDR'] ?? 'x');
+$throttleFile = sys_get_temp_dir() . '/pr_login_' . md5($ip);
+$fails = [];
+if (is_file($throttleFile)) {
+    $fails = array_filter((array)json_decode(@file_get_contents($throttleFile), true), function ($t) { return $t > time() - 900; });
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = $_POST['password'] ?? '';
-    if (hash_equals(GESTION_PASSWORD, $input)) {
+    // GESTION_PASSWORD puede ser texto plano o un hash de password_hash().
+    $isHash = strpos(GESTION_PASSWORD, '$2y$') === 0 || strpos(GESTION_PASSWORD, '$argon') === 0;
+    $okPass = $isHash ? password_verify($input, GESTION_PASSWORD) : hash_equals(GESTION_PASSWORD, $input);
+    if (count($fails) >= 5) {
+        $error = 'Demasiados intentos. Esperá 15 minutos.';
+    } elseif ($okPass) {
+        @unlink($throttleFile);
         session_regenerate_id(true);
         $_SESSION['gestion_auth'] = true;
         header('Location: index.php');
         exit;
     } else {
+        $fails[] = time();
+        @file_put_contents($throttleFile, json_encode(array_values($fails)));
         $error = 'Contraseña incorrecta';
     }
 }

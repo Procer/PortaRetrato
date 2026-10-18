@@ -41,3 +41,11 @@
         Header set Accept-Ranges bytes
     </FilesMatch>
 </IfModule>
+
+# Nunca ejecutar PHP desde uploads/ y no exponer datos internos del espejo
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^uploads/.*\.(php|phtml|phar)$ - [F,L]
+    RewriteRule ^(mirror|agente)/ - [F,L]
+    RewriteRule ^backend/(mirror\.config|config|bootstrap)\.php$ - [F,L]
+</IfModule>

@@ -20,7 +20,7 @@ const QS_CACHE_TTL = 15 * 60 * 1000;
 // Modo sync — el Visor descarga cada archivo una sola vez (Service Worker) y
 // después reproduce desde el cache del navegador, incluso sin conexión.
 let lastManifestHash = null;
-const SYNC_INTERVAL = 10 * 60 * 1000; // cada 10 min pide el manifest (unos KB; 304 si nada cambió)
+const SYNC_INTERVAL = 60 * 1000; // cada 1 min pide el manifest al Laragon local (no gasta internet)
 
 // Horario de encendido del Visor: fuera de él, reproducción frenada + imagen de reposo.
 let visorOff = false;
@@ -37,21 +37,16 @@ let recordatoriosCloseTimer = null;
 const display = document.getElementById('media-display');
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // Service Worker: cachea la media para que el hosting solo la envíe una vez.
-    // Si no se registra (p.ej. sitio sin HTTPS) el Visor sigue funcionando igual,
-    // solo que sin el ahorro de ancho de banda.
+    // La app corre en la misma PC del portarretrato (Laragon): la media se lee
+    // del disco local, no hace falta Service Worker. Si quedó uno registrado de
+    // la época del hosting, se desregistra y se borra su cache.
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW no registrado', e));
+        navigator.serviceWorker.getRegistrations()
+            .then(regs => regs.forEach(r => r.unregister()))
+            .catch(() => {});
     }
-    // Almacenamiento persistente: sin esto, si al equipo le queda poco disco
-    // Chrome puede EXPULSAR todo el cache de media bajo presión → el Visor
-    // vuelve a descargar el álbum entero. Con persist() concedido, Chrome no lo
-    // borra solo (aunque una foto nueva puede fallar si el disco está realmente
-    // lleno). En un kiosco suele concederse sin preguntar.
-    if (navigator.storage && navigator.storage.persist) {
-        navigator.storage.persisted().then(p => {
-            if (!p) navigator.storage.persist().then(g => console.log('storage.persist:', g));
-        }).catch(() => {});
+    if (self.caches) {
+        caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {});
     }
     restOverlayEl = document.getElementById('rest-overlay');
 
@@ -406,9 +401,8 @@ function updateWeatherAlertUI() {
 // ─── MODO SYNC ───────────────────────────────────────────────────────────────
 // Pide el manifest (un JSON chico: toda la config + la lista de media del álbum
 // activo, cada archivo con su tamaño/mtime). Si algo cambió respecto de la
-// última vez: aplica settings, actualiza recordatorios / pase rápido, cambia la
-// playlist y precarga al cache SOLO los archivos nuevos. Sin conexión: no hace
-// nada y el Visor sigue reproduciendo lo que ya está cacheado.
+// última vez: aplica settings, actualiza recordatorios / pase rápido y cambia
+// la playlist. La media se sirve desde el Laragon local de esta misma PC.
 async function syncFromManifest(isFirst = false) {
     let manifest;
     try {
@@ -469,21 +463,14 @@ async function syncFromManifest(isFirst = false) {
         }
     }
 
-    // Precarga + limpieza del cache en segundo plano (no bloquea el primer cuadro).
-    const settings = manifest.settings || {};
-    setTimeout(() => precacheAndPrune(media, settings), isFirst ? 4000 : 500);
-
-    // Reporte de métricas al backend (pantalla "Diagnóstico" de Gestión). En la
-    // primera carga se da tiempo a que arranque la precarga; después va con
-    // throttle propio.
+    // Reporte de estado al backend (pantalla "Diagnóstico" de Gestión).
     setTimeout(() => reportDeviceStats(isFirst), isFirst ? 9000 : 1500);
 }
 
-// ─── MÉTRICAS DEL DISPOSITIVO ────────────────────────────────────────────────
-// El Visor le cuenta al backend cómo está funcionando el modo sync en este
-// equipo: si el Service Worker está activo, cuántos archivos tiene cacheados,
-// cuánto espacio ocupan y cuántos bytes bajó realmente del hosting. Es
-// telemetría: si algo falla, se ignora en silencio.
+// ─── ESTADO DEL DISPOSITIVO ──────────────────────────────────────────────────
+// El Visor le avisa al backend que está vivo (pantalla "Diagnóstico" de
+// Gestión): cuántos archivos tiene el álbum, qué versión de contenido muestra
+// y si tiene conexión. Es telemetría: si algo falla, se ignora en silencio.
 function getDeviceId() {
     let id = localStorage.getItem('pr_device_id');
     if (!id) {
@@ -503,54 +490,19 @@ function getDeviceName() {
     return localStorage.getItem('pr_device_name') || '';
 }
 
-function askSwStats(timeoutMs = 3000) {
-    return new Promise((resolve) => {
-        if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return resolve(null);
-        let done = false;
-        const finish = (v) => { if (!done) { done = true; resolve(v); } };
-        const ch = new MessageChannel();
-        const to = setTimeout(() => finish(null), timeoutMs);
-        ch.port1.onmessage = (e) => { clearTimeout(to); finish(e.data || null); };
-        try {
-            navigator.serviceWorker.controller.postMessage({ type: 'GET_STATS' }, [ch.port2]);
-        } catch (e) { clearTimeout(to); finish(null); }
-    });
-}
-
 let lastReportTs = 0;
 async function reportDeviceStats(force = false) {
     const now = Date.now();
     if (!force && now - lastReportTs < 5 * 60 * 1000) return;
     lastReportTs = now;
     try {
-        const swActive = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
-        let cacheBytes = 0, quotaBytes = 0, persistente = 0;
-        if (navigator.storage && navigator.storage.estimate) {
-            try {
-                const est = await navigator.storage.estimate();
-                cacheBytes = est.usage || 0;
-                quotaBytes = est.quota || 0;
-            } catch (e) { /* no soportado */ }
-        }
-        if (navigator.storage && navigator.storage.persisted) {
-            try { persistente = (await navigator.storage.persisted()) ? 1 : 0; } catch (e) {}
-        }
-        const sw = await askSwStats();
         const payload = {
-            device_id:         getDeviceId(),
-            nombre:            getDeviceName(),
-            sw_activo:         swActive ? 1 : 0,
-            cache_bytes:       cacheBytes,
-            quota_bytes:       quotaBytes,
-            persistente:       persistente,
-            cache_archivos:    sw ? sw.cacheEntries : 0,
-            descarga_bytes:    sw ? sw.dlBytes : 0,
-            descarga_archivos: sw ? sw.dlCount : 0,
-            descarga_desde:    sw ? sw.since : 0,
-            media_total:       playlist.length,
-            version_hash:      lastManifestHash || '',
-            online:            navigator.onLine ? 1 : 0,
-            ua:                navigator.userAgent.slice(0, 255)
+            device_id:    getDeviceId(),
+            nombre:       getDeviceName(),
+            media_total:  playlist.length,
+            version_hash: lastManifestHash || '',
+            online:       navigator.onLine ? 1 : 0,
+            ua:           navigator.userAgent.slice(0, 255)
         };
         await fetch('backend/api.php?action=report_device_stats', {
             method: 'POST',
@@ -558,29 +510,6 @@ async function reportDeviceStats(force = false) {
             body: JSON.stringify(payload)
         });
     } catch (e) { /* telemetría: nunca rompe el Visor */ }
-}
-
-// Pide una vez cada archivo del álbum (+ la imagen de reposo). El Service
-// Worker lo baja del hosting si falta y lo guarda; si ya está, no toca la red.
-// Después le manda al SW la lista vigente para que borre lo que sobra.
-let precacheRunning = false;
-async function precacheAndPrune(media, settings) {
-    if (precacheRunning) return;
-    precacheRunning = true;
-    try {
-        const urls = media.map(m => m.ruta).filter(Boolean);
-        if (settings.visor_off_image) urls.push(settings.visor_off_image);
-
-        for (const u of urls) {
-            try { await fetch(u, { cache: 'no-store' }); } catch (e) { /* seguirá offline */ }
-        }
-
-        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-            navigator.serviceWorker.controller.postMessage({ type: 'PRUNE_MEDIA', keep: urls });
-        }
-    } finally {
-        precacheRunning = false;
-    }
 }
 
 function showNext() {

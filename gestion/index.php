@@ -511,9 +511,8 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
             </div>
             <div class="modal-section" style="max-height:65vh; overflow-y:auto; padding-right:8px;">
                 <div style="background:#f8fafc; border-left:3px solid var(--accent); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.78rem; color:#475569; line-height:1.6;">
-                    Cada portarretrato reporta su estado cada ~5 min.
-                    <strong style="color:#0f172a;">Si el Service Worker está activo y "archivos en caché" iguala a los del álbum, el hosting ya no reenvía fotos.</strong><br>
-                    El consumo mensual real y el tope de <strong>100&nbsp;GB</strong> se controlan en cPanel → Ancho de banda.
+                    El portarretrato reporta su estado cada ~5 min.
+                    <strong style="color:#0f172a;">Las fotos y videos se leen del disco de la propia PC:</strong> no se descargan de internet.
                 </div>
                 <div id="metrics-summary" style="display:none;"></div>
                 <div id="metrics-list"></div>
@@ -638,6 +637,6 @@ if (!isset($_SESSION['gestion_auth']) || $_SESSION['gestion_auth'] !== true) {
         .dev-stat b.r { color: #b91c1c; }
         @media (max-width: 480px) { .dev-grid { grid-template-columns: 1fr; } }
     </style>
-    <script src="../assets/js/gestion.js?v=20260902b"></script>
+    <script src="../assets/js/gestion.js?v=20261018"></script>
 </body>
 </html>

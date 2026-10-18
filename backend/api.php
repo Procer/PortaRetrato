@@ -1,6 +1,6 @@
 <?php
 header('Content-Type: application/json');
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 // Responde con ETag; si el cliente ya tiene la versión actual devuelve 304 sin cuerpo.
@@ -66,10 +66,56 @@ function rotateImageFile(string $fullPath, int $degrees): bool {
     return (bool)$result;
 }
 
+// Reenvía una escritura del Visor al servidor central (modo espejo). Mejor esfuerzo.
+function mirrorForward(array $cfg, string $action, string $body): void {
+    if (!function_exists('curl_init')) return;
+    $ch = curl_init(rtrim($cfg['remote'], '/') . '/backend/api.php?action=' . urlencode($action));
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 6, CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'X-Device-Token: ' . $cfg['token']],
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+// Modo espejo: todo se lee de mirror/manifest.json (lo escribe agente/sync.php).
+function handleMirror(array $cfg, string $action): void {
+    $file = MIRROR_DIR . '/manifest.json';
+    $m = is_file($file) ? json_decode(file_get_contents($file), true) : null;
+    if (!is_array($m)) {
+        $m = ['media' => [], 'settings' => new stdClass(), 'recordatorios' => [], 'quick_show' => [], 'version_hash' => ''];
+    }
+    switch ($action) {
+        case 'get_sync_manifest':     sendCachedJson(json_encode($m)); break;
+        case 'get_quick_show_media':  sendCachedJson(json_encode($m['quick_show'])); break;
+        case 'get_recordatorios':     sendCachedJson(json_encode($m['recordatorios'])); break;
+        case 'get_weather_settings':  sendCachedJson(json_encode($m['settings'])); break;
+        case 'report_device_stats':
+        case 'mark_recordatorios_vistos':
+            mirrorForward($cfg, $action, file_get_contents('php://input') ?: '{}');
+            echo json_encode(['success' => true]);
+            break;
+        default:
+            jsonFail(403, 'No disponible en el modo espejo');
+    }
+}
+
 try {
+    require_once 'bootstrap.php';
+    $action = $_GET['action'] ?? '';
+
+    if ($mirror = mirrorConfig()) {
+        handleMirror($mirror, $action);
+        exit;
+    }
+
     require_once 'config.php';
 
-    $action = $_GET['action'] ?? '';
+    // Acciones que además puede pedir el Visor / agente con token de dispositivo.
+    $deviceActions = ['get_sync_manifest', 'report_device_stats', 'mark_recordatorios_vistos',
+                      'get_quick_show_media', 'get_recordatorios', 'get_weather_settings'];
+    requireAuth(in_array($action, $deviceActions, true));
 
     switch ($action) {
         case 'list_albums':
@@ -116,6 +162,13 @@ try {
 
             $recordatorios = $pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC")->fetchAll();
             $quick_show    = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
+            foreach ($quick_show as &$q) {
+                $full = '../' . $q['ruta'];
+                $q['bytes'] = @filesize($full) ?: 0;
+                $q['mtime'] = @filemtime($full) ?: 0;
+                $q['ruta']  = bustCache($q['ruta']);
+            }
+            unset($q);
 
             $payload = [
                 'media'         => $media,
@@ -187,9 +240,12 @@ try {
             $stmt = $pdo->prepare("SELECT * FROM media WHERE album_id = ? ORDER BY orden ASC, id ASC");
             $stmt->execute([$id]);
             $rows = $stmt->fetchAll();
-            foreach ($rows as &$row) { $row['ruta'] = bustCache($row['ruta']); }
+            foreach ($rows as &$row) {
+                $row['thumb'] = thumbIfExists($row['ruta']);
+                $row['ruta']  = bustCache($row['ruta']);
+            }
             unset($row);
-            echo json_encode($rows);
+            sendCachedJson(json_encode($rows));
             break;
 
         case 'rotate_media':
@@ -212,7 +268,24 @@ try {
                 echo json_encode(['error' => 'No se pudo rotar la imagen']);
                 break;
             }
+            makeThumb($fullPath, '../' . thumbRelPath($row['ruta']));
             echo json_encode(['success' => true]);
+            break;
+
+        case 'save_poster':
+            // Portada de un video, generada en el navegador (sin ffmpeg en el hosting).
+            $id = (int)($_POST['id'] ?? 0);
+            $qs = ($_POST['quick_show'] ?? '0') === '1';
+            $stmt = $pdo->prepare($qs ? "SELECT ruta FROM quick_show_media WHERE id = ?" : "SELECT ruta FROM media WHERE id = ? AND tipo = 'video'");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch();
+            if (!$row || empty($_FILES['poster']['tmp_name']) || $_FILES['poster']['error'] !== UPLOAD_ERR_OK
+                || $_FILES['poster']['size'] > 2 * 1024 * 1024) {
+                echo json_encode(['error' => 'Portada inválida']);
+                break;
+            }
+            $ok = makeThumb($_FILES['poster']['tmp_name'], '../' . thumbRelPath($row['ruta']));
+            echo json_encode($ok ? ['success' => true] : ['error' => 'No se pudo procesar la portada']);
             break;
 
         case 'set_active_album':
@@ -239,7 +312,8 @@ try {
             $row = $stmt->fetch();
             if ($row) {
                 $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) unlink($full_path);
+                if (file_exists($full_path)) @unlink($full_path);
+                deleteThumb($row['ruta']);
                 $stmt = $pdo->prepare("DELETE FROM media WHERE id = ?");
                 $stmt->execute([$id]);
             }
@@ -261,7 +335,8 @@ try {
             $stmt->execute([$id]);
             foreach ($stmt->fetchAll() as $row) {
                 $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) unlink($full_path);
+                if (file_exists($full_path)) @unlink($full_path);
+                deleteThumb($row['ruta']);
             }
             $stmt = $pdo->prepare("DELETE FROM media WHERE album_id = ?");
             $stmt->execute([$id]);
@@ -275,7 +350,8 @@ try {
             $stmt->execute([$id]);
             foreach ($stmt->fetchAll() as $row) {
                 $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) unlink($full_path);
+                if (file_exists($full_path)) @unlink($full_path);
+                deleteThumb($row['ruta']);
             }
             // Borrar el álbum (el CASCADE de la BD borraría los registros de media)
             $stmt = $pdo->prepare("DELETE FROM albums WHERE id = ?");
@@ -284,8 +360,13 @@ try {
             break;
 
         case 'get_quick_show_media':
-            $stmt = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC");
-            sendCachedJson(json_encode($stmt->fetchAll()));
+            $rows = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
+            foreach ($rows as &$row) {
+                $row['thumb'] = thumbIfExists($row['ruta']);
+                $row['ruta']  = bustCache($row['ruta']);
+            }
+            unset($row);
+            sendCachedJson(json_encode($rows));
             break;
 
         case 'delete_quick_show_media':
@@ -295,7 +376,8 @@ try {
             $row = $stmt->fetch();
             if ($row) {
                 $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) unlink($full_path);
+                if (file_exists($full_path)) @unlink($full_path);
+                deleteThumb($row['ruta']);
                 $stmt = $pdo->prepare("DELETE FROM quick_show_media WHERE id = ?");
                 $stmt->execute([$id]);
             }
@@ -306,7 +388,8 @@ try {
             $stmt = $pdo->query("SELECT ruta FROM quick_show_media");
             foreach ($stmt->fetchAll() as $row) {
                 $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) unlink($full_path);
+                if (file_exists($full_path)) @unlink($full_path);
+                deleteThumb($row['ruta']);
             }
             $pdo->query("DELETE FROM quick_show_media");
             echo json_encode(['success' => true]);

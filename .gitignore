@@ -17,3 +17,7 @@ Thumbs.db
 clean_temp/
 # Config con credenciales — cada entorno tiene el suyo
 backend/config.php
+
+# Modo espejo (PC del portarretrato)
+mirror/
+backend/mirror.config.php

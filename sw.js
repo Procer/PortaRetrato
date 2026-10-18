@@ -1,156 +1,18 @@
-// Service Worker — Porta Retrato
+// Service Worker retirado.
 // ---------------------------------------------------------------------------
-// Objetivo: que el hosting solo tenga que enviar cada foto/video UNA vez.
-// Todo lo que cuelgue de /uploads/ se guarda en Cache Storage (disco del
-// dispositivo, sobrevive reinicios y cierres del navegador). El resto del
-// tráfico (HTML, JS, CSS, API JSON, clima) sigue yendo a la red normalmente.
-//
-// El Visor (viewer.js) se encarga de:
-//   1. Pedir cada archivo del álbum activo una vez (precarga) → el SW lo baja
-//      y lo cachea.
-//   2. Mandar un mensaje PRUNE_MEDIA con la lista vigente → el SW borra del
-//      cache lo que ya no está en el álbum.
-
-const MEDIA_CACHE = 'pr-media-v1';
-
-// Contador de consumo real: solo suma cuando el SW tuvo que ir a la red a
-// buscar un archivo que NO estaba en cache (cache-miss). Se guarda dentro del
-// propio cache (clave sintética, nunca se pide a la red) para sobrevivir a los
-// reinicios del Service Worker. El Visor lo consulta con un mensaje GET_STATS
-// y lo reporta al backend para la pantalla "Diagnóstico" de Gestión.
-// OJO: la clave se arma relativa a self.location (que incluye la subcarpeta
-// /PortaRetrato/), no a origin, para que coincida con las claves reales del
-// cache cuando el sitio NO está en la raíz del dominio.
-const STATS_URL = new URL('__sw_stats__', self.location).href;
-let stats = { dlBytes: 0, dlCount: 0, since: Date.now() };
-let statsReady = false;
-
-async function loadStats() {
-    if (statsReady) return;
-    statsReady = true;
-    try {
-        const cache = await caches.open(MEDIA_CACHE);
-        const r = await cache.match(STATS_URL);
-        if (r) {
-            const s = await r.json();
-            if (s && typeof s.dlBytes === 'number') stats = s;
-        }
-    } catch (e) { /* arranca de cero */ }
-}
-
-async function saveStats() {
-    try {
-        const cache = await caches.open(MEDIA_CACHE);
-        await cache.put(STATS_URL, new Response(JSON.stringify(stats), {
-            headers: { 'Content-Type': 'application/json' }
-        }));
-    } catch (e) { /* sin persistencia, se vuelve a contar tras reiniciar */ }
-}
+// La app ahora corre en la PC del portarretrato (Laragon) y la media se lee del
+// disco local, así que ya no hace falta cachear nada. Este archivo queda como
+// "lápida": cualquier navegador que todavía tenga registrado el SW viejo lo
+// actualiza a esta versión, que borra su cache y se desregistra sola.
 
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
     event.waitUntil((async () => {
-        const names = await caches.keys();
-        await Promise.all(names.filter(n => n !== MEDIA_CACHE).map(n => caches.delete(n)));
-        await self.clients.claim();
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+        await self.registration.unregister();
+        const clients = await self.clients.matchAll({ type: 'window' });
+        clients.forEach(c => c.navigate(c.url));
     })());
-});
-
-self.addEventListener('fetch', (event) => {
-    const url = new URL(event.request.url);
-    if (event.request.method === 'GET' &&
-        url.origin === self.location.origin &&
-        url.pathname.includes('/uploads/')) {
-        event.respondWith(serveMedia(event));
-    }
-    // Cualquier otra petición: comportamiento por defecto (red).
-});
-
-async function serveMedia(event) {
-    const cache = await caches.open(MEDIA_CACHE);
-    // La clave incluye el ?v=<mtime>: si el archivo se reemplazó en el servidor
-    // (p.ej. una foto rotada), la URL cambia y se vuelve a descargar una vez.
-    const key = event.request.url;
-
-    const cached = await cache.match(key);
-    if (cached) return cached;
-
-    try {
-        // Se pide el archivo COMPLETO (sin cabecera Range) para guardarlo entero.
-        const netResp = await fetch(key, { cache: 'no-store' });
-        if (netResp && netResp.status === 200) {
-            // Guarda SOLO si es de verdad una imagen/video. Si el hosting mete un
-            // filtro de seguridad ("One moment, please…") la respuesta es un 200
-            // con text/html: NO se cachea (si no, la foto queda envenenada y
-            // falla para siempre) ni se cuenta. El <img> hará onerror y se
-            // reintenta en la próxima vuelta, ya con la cookie de seguridad OK.
-            const ct = (netResp.headers.get('content-type') || '').toLowerCase();
-            const esMedia = ct.startsWith('image/') || ct.startsWith('video/') ||
-                            ct.startsWith('audio/') || ct === 'application/octet-stream' || ct === '';
-            if (esMedia) {
-                await cache.put(key, netResp.clone());
-                // Consumo real: este archivo viajó del hosting al equipo esta vez.
-                // La persistencia va por event.waitUntil: si fuera sin await, el
-                // SW puede morir apenas responde el <img> y el contador se pierde.
-                await loadStats();
-                let len = parseInt(netResp.headers.get('content-length') || '0', 10);
-                if (!Number.isFinite(len) || len <= 0) {
-                    try { len = (await netResp.clone().blob()).size; } catch (e) { len = 0; }
-                }
-                stats.dlBytes += len;
-                stats.dlCount += 1;
-                event.waitUntil(saveStats());
-            }
-        }
-        return netResp; // 200 media recién bajado, HTML de seguridad, o 404/5xx → onerror en el Visor
-    } catch (e) {
-        return new Response('', { status: 504, statusText: 'Sin conexion y sin cache' });
-    }
-}
-// Nota: se devuelve siempre la respuesta 200 completa, también a los <video>
-// que piden por Range. El navegador reproduce igual (buffer desde el inicio) y
-// evitamos cargar 200+ MB en memoria por cada seek en un equipo modesto. El
-// portarretrato reproduce los clips de corrido, no hace seeking.
-
-self.addEventListener('message', (event) => {
-    const data = event.data || {};
-    const reply = (msg) => {
-        if (event.ports && event.ports[0]) event.ports[0].postMessage(msg);
-        else if (event.source) event.source.postMessage(msg);
-    };
-
-    if (data.type === 'PRUNE_MEDIA' && Array.isArray(data.keep)) {
-        event.waitUntil((async () => {
-            const cache = await caches.open(MEDIA_CACHE);
-            // Las rutas del manifest son relativas ("uploads/x?v=1"). Hay que
-            // resolverlas contra self.location (incluye la subcarpeta), NO contra
-            // origin: si no, en un sitio bajo /PortaRetrato/ el set "keep" queda
-            // con URLs .../uploads/... que nunca matchean las claves reales
-            // .../PortaRetrato/uploads/... y el prune borra TODO lo recién bajado.
-            const keep = new Set(data.keep.map(u => new URL(u, self.location).href));
-            const keys = await cache.keys();
-            // STATS_URL no está en el álbum pero no debe borrarse nunca.
-            await Promise.all(keys.map(k =>
-                (keep.has(k.url) || k.url === STATS_URL) ? Promise.resolve() : cache.delete(k)
-            ));
-            reply({ type: 'PRUNE_DONE', kept: keep.size });
-        })());
-    }
-
-    if (data.type === 'GET_STATS') {
-        event.waitUntil((async () => {
-            await loadStats();
-            const cache = await caches.open(MEDIA_CACHE);
-            const keys = await cache.keys();
-            const cacheEntries = keys.filter(k => k.url.includes('/uploads/')).length;
-            reply({
-                type: 'STATS',
-                dlBytes: stats.dlBytes,
-                dlCount: stats.dlCount,
-                since: stats.since,
-                cacheEntries
-            });
-        })());
-    }
 });

@@ -40,11 +40,72 @@ function closeModal(modalId) {
     else { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); }
 }
 
-function openLightbox(url, tipo) {
+// ─── Ahorro de datos al subir ────────────────────────────────────────────────
+// Achica la foto en el celular ANTES de subirla (el servidor igual la deja en 1920 px).
+async function shrinkImage(file, maxDim = 2560, quality = 0.85) {
+    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
+    try {
+        const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+        if (scale === 1 && file.size < 1.5 * 1024 * 1024) { bmp.close(); return file; }
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(bmp.width * scale);
+        canvas.height = Math.round(bmp.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+        bmp.close();
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+        if (!blob || blob.size >= file.size) return file;
+        return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch (e) { return file; }   // p.ej. HEIC: se sube tal cual
+}
+
+// Portada de un video, sacada en el navegador (el archivo local no consume datos).
+function videoPoster(src) {
+    return new Promise(resolve => {
+        const v = document.createElement('video');
+        v.muted = true; v.playsInline = true; v.preload = 'auto';
+        const done = (blob) => { v.removeAttribute('src'); v.load(); resolve(blob); };
+        const timer = setTimeout(() => done(null), 10000);
+        v.onerror = () => { clearTimeout(timer); done(null); };
+        v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 2) / 2); };
+        v.onseeked = () => {
+            const k = Math.min(1, 400 / Math.max(v.videoWidth, v.videoHeight));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(v.videoWidth * k)); c.height = Math.max(1, Math.round(v.videoHeight * k));
+            c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+            c.toBlob(b => { clearTimeout(timer); done(b); }, 'image/jpeg', 0.8);
+        };
+        v.src = src;
+    });
+}
+
+// Un video sin portada la genera la primera vez que se abre (ya lo está bajando igual).
+function healVideoPoster(video, id, quickShow) {
+    video.addEventListener('loadeddata', () => {
+        try {
+            const k = Math.min(1, 400 / Math.max(video.videoWidth, video.videoHeight));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(video.videoWidth * k)); c.height = Math.max(1, Math.round(video.videoHeight * k));
+            c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+            c.toBlob(b => {
+                if (!b) return;
+                const fd = new FormData();
+                fd.append('id', id); fd.append('poster', b, 'p.jpg');
+                if (quickShow) fd.append('quick_show', '1');
+                fetch('../backend/api.php?action=save_poster', { method: 'POST', body: fd }).then(() => loadMedia()).catch(() => {});
+            }, 'image/jpeg', 0.8);
+        } catch (e) {}
+    }, { once: true });
+}
+
+function openLightbox(url, tipo, healId) {
     const img = document.getElementById('lightbox-img');
     const video = document.getElementById('lightbox-video');
     if (tipo === 'video') {
         video.src = '../' + url;
+        if (healId) healVideoPoster(video, healId, false);
         video.style.display = 'block';
         img.style.display = 'none';
         img.src = '';
@@ -373,11 +434,14 @@ async function loadMedia() {
             card.className = 'card';
             card.dataset.id = item.id;
             card.setAttribute('draggable', 'true');
-            const content = item.tipo === 'video' ? `<video src="../${item.ruta}" muted></video>` : `<img src="../${item.ruta}" loading="lazy">`;
+            const thumbSrc = item.thumb ? `../${item.thumb}` : (item.tipo === 'video' ? null : `../${item.ruta}`);
+            const content = thumbSrc
+                ? `<img src="${thumbSrc}" loading="lazy" decoding="async">${item.tipo === 'video' ? '<i class="fas fa-circle-play" style="position:absolute;inset:0;margin:auto;width:fit-content;height:fit-content;font-size:2.2rem;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none;"></i>' : ''}`
+                : `<div style="width:100%;height:100%;background:#1e1b2e;display:flex;align-items:center;justify-content:center;"><i class="fas fa-circle-play" style="font-size:2.6rem;color:#a78bfa;"></i></div>`;
             const durBadge = parseInt(item.duracion_img) > 0 ? `<div class="card-duration-badge">${item.duracion_img}s</div>` : '';
             const rotateBtn = item.tipo !== 'video' ? `<button onclick="event.stopPropagation(); rotateMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#0ea5e9; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-rotate-right"></i></button>` : '';
             card.innerHTML = `${content}${durBadge}<div class="overlay"><div style="display:flex;gap:8px;"><button onclick="event.stopPropagation(); openMediaDurationModal(${item.id}, ${parseInt(item.duracion_img) || 0})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#8b5cf6; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-clock"></i></button>${rotateBtn}<button onclick="event.stopPropagation(); deleteMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#ef4444; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-trash-can"></i></button></div></div><div class="drag-handle"><i class="fas fa-grip-dots-vertical"></i></div>`;
-            card.onclick = () => openLightbox(item.ruta, item.tipo);
+            card.onclick = () => openLightbox(item.ruta, item.tipo, item.tipo === 'video' && !item.thumb ? item.id : 0);
 
             card.addEventListener('dragstart', (e) => {
                 draggedCard = card;
@@ -443,7 +507,14 @@ async function uploadFiles() {
 
         const formData = new FormData();
         formData.append('album_id', currentAlbumId);
-        formData.append('media[]', files[i]);
+        const isVid = files[i].type.startsWith('video/');
+        formData.append('media[]', isVid ? files[i] : await shrinkImage(files[i]), files[i].name);
+        if (isVid) {
+            const url = URL.createObjectURL(files[i]);
+            const poster = await videoPoster(url);
+            URL.revokeObjectURL(url);
+            if (poster) formData.append('poster', poster, 'p.jpg');
+        }
 
         try {
             const ok = await new Promise((resolve, reject) => {
@@ -556,6 +627,7 @@ async function emptyAlbum() {
 function togglePreviewModal() {
     const modal = document.getElementById('preview-modal');
     if (modal.style.display === 'none') {
+        if (!confirm('La vista previa descarga todas las fotos y videos del álbum activo desde el servidor (consume datos). ¿Continuar?')) return;
         document.getElementById('viewer-iframe').src = '../';
         modal.style.display = 'flex';
     } else {
@@ -638,7 +710,7 @@ async function loadQsMedia() {
             wrap.className = 'qs-card-wrap';
             wrap.innerHTML = `
                 <div class="qs-thumb">
-                    <img src="../${item.ruta}" loading="lazy">
+                    <img src="../${item.thumb || item.ruta}" loading="lazy" decoding="async">
                     <div class="overlay">
                         <button onclick="event.stopPropagation(); deleteQsMedia(${item.id})" style="background:rgba(255,255,255,0.92);border:none;padding:10px;border-radius:12px;color:#ef4444;cursor:pointer;backdrop-filter:blur(8px);">
                             <i class="fas fa-trash-can"></i>
@@ -693,7 +765,7 @@ async function uploadQuickShowFiles(input) {
         if (progressText) progressText.innerText = `SUBIENDO ${i + 1} / ${files.length}...`;
         const formData = new FormData();
         formData.append('quick_show', '1');
-        formData.append('media[]', files[i]);
+        formData.append('media[]', await shrinkImage(files[i]), files[i].name);
         try {
             const ok = await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -916,83 +988,25 @@ async function loadDeviceMetrics() {
         return;
     }
 
-    const totBytes = devices.reduce((a, d) => a + (Number(d.descarga_bytes) || 0), 0);
-    const totArch = devices.reduce((a, d) => a + (Number(d.descarga_archivos) || 0), 0);
-
-    // Barra: consumo acumulado (aprox.) contra el tope deseado de 100 GB/mes.
-    // El color va de verde (hue 130) a rojo (hue 0) a medida que se acerca al tope.
-    const LIMITE_GB = 100;
-    const totGB = totBytes / 1073741824;
-    const pct = Math.min(100, (totGB / LIMITE_GB) * 100);
-    const hue = Math.max(0, 130 * (1 - pct / 100));
-    const col = `hsl(${hue.toFixed(0)}, 72%, 45%)`;
-    const excedido = totGB > LIMITE_GB;
-    const gbTxt = totGB < 0.01 ? '<0,01' : totGB.toFixed(totGB < 10 ? 2 : 1);
-
-    summary.innerHTML = `
-    <div class="metrics-total">
-        <div>Descargado del hosting<small>Suma de ${devices.length} equipo(s), acumulado desde el último reinicio de cada uno</small></div>
-        <div style="text-align:right; font-size:1.05rem;">${mFmtBytes(totBytes)}<small>${totArch} archivos</small></div>
-    </div>
-    <div class="metrics-bar-wrap">
-        <div class="metrics-bar-head">
-            <span>Consumo vs. tope</span>
-            <small>${gbTxt} GB de ${LIMITE_GB} GB${excedido ? ' &middot; ⚠ excedido' : ''}</small>
-        </div>
-        <div class="metrics-bar-track">
-            <div class="metrics-bar-fill" style="width:${pct.toFixed(1)}%; background-color:${col};"></div>
-        </div>
-        <div class="metrics-bar-foot">${pct < 0.1 ? '0' : pct.toFixed(1)}% del tope &mdash; el consumo mensual exacto está en cPanel &rarr; Ancho de banda.</div>
-    </div>`;
-    summary.style.display = 'block';
-
     list.innerHTML = devices.map(renderDeviceCard).join('');
 }
 
 function renderDeviceCard(d) {
-    const sw = parseInt(d.sw_activo) === 1;
     const lastMs = Date.now() - mParseDate(d.ultimo_reporte);
     const vivo = !isNaN(lastMs) && lastMs < 15 * 60 * 1000;
     const online = parseInt(d.online) === 1;
-    const cacheN = parseInt(d.cache_archivos) || 0;
     const totalN = parseInt(d.media_total) || 0;
-    const completo = totalN > 0 && cacheN >= totalN;
     const nombre = (d.nombre && d.nombre.trim())
         ? d.nombre.trim()
         : 'Dispositivo ' + String(d.device_id || '').slice(0, 6);
 
-    const swBadge = sw
-        ? '<span class="dev-badge ok"><i class="fas fa-check"></i> Service Worker activo</span>'
-        : '<span class="dev-badge bad"><i class="fas fa-triangle-exclamation"></i> SW inactivo — sin ahorro</span>';
+    // "online" = la PC tiene internet (clima, acceso remoto a Gestión). El Visor
+    // sigue funcionando sin internet porque la media es local.
     const netBadge = !vivo
         ? '<span class="dev-badge bad">sin señal</span>'
         : (online ? '<span class="dev-badge ok">en línea</span>'
-                  : '<span class="dev-badge warn">sin conexión</span>');
-    const syncBadge = completo
-        ? '<span class="dev-badge ok">álbum sincronizado</span>'
-        : (sw && totalN > 0 ? '<span class="dev-badge warn">descargando…</span>' : '');
-
-    // Señal de thrash: bajó bastante más archivos que los del álbum y todavía no
-    // completó → el álbum no entra en el disco y Chrome expulsa el caché.
-    const dlN = parseInt(d.descarga_archivos) || 0;
-    const usa = Number(d.cache_bytes) || 0;
-    const cupo = Number(d.quota_bytes) || 0;
-    const cupoAjustado = cupo > 0 && usa / cupo > 0.85;
-    const thrash = sw && !completo && totalN > 0 && (dlN > totalN * 1.3 || cupoAjustado);
-    const thrashBadge = thrash
-        ? '<span class="dev-badge bad">⚠ re-descargando — poco disco</span>' : '';
-    const persistBadge = (sw && parseInt(d.persistente) !== 1)
-        ? '<span class="dev-badge warn">sin almacenamiento persistente</span>' : '';
-
-    let desde = '';
-    if (d.descarga_desde && Number(d.descarga_desde) > 0) {
-        const dt = new Date(Number(d.descarga_desde));
-        if (!isNaN(dt.getTime())) desde = ' · desde ' + dt.toLocaleDateString();
-    }
+                  : '<span class="dev-badge warn">sin internet</span>');
     const ver = d.version_hash ? String(d.version_hash).slice(0, 8) : '—';
-    const espacio = cupo > 0
-        ? `${mFmtBytes(usa)} / ${mFmtBytes(cupo)}`
-        : mFmtBytes(usa);
 
     return `
     <div class="device-card">
@@ -1000,11 +1014,9 @@ function renderDeviceCard(d) {
             <strong>${mEsc(nombre)}</strong>
             <span class="dev-ago">${mFmtAgo(d.ultimo_reporte)}</span>
         </div>
-        <div class="dev-badges">${swBadge} ${netBadge} ${syncBadge} ${thrashBadge} ${persistBadge}</div>
+        <div class="dev-badges">${netBadge}</div>
         <div class="dev-grid">
-            <div class="dev-stat"><span>Archivos en caché</span><b class="${completo ? 'g' : ''}">${cacheN} / ${totalN || '?'}</b></div>
-            <div class="dev-stat"><span>Espacio en el equipo (usado / cupo)</span><b class="${cupoAjustado ? 'r' : ''}">${espacio}</b></div>
-            <div class="dev-stat"><span>Descargado del hosting</span><b>${mFmtBytes(d.descarga_bytes)} · ${dlN} arch.${desde}</b></div>
+            <div class="dev-stat"><span>Archivos en el álbum</span><b>${totalN || '?'}</b></div>
             <div class="dev-stat"><span>Versión de contenido</span><b>${mEsc(ver)}</b></div>
         </div>
     </div>`;

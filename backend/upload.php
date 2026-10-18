@@ -1,7 +1,10 @@
 <?php
+require_once 'bootstrap.php';
+if (mirrorConfig()) jsonFail(403, 'No disponible en el modo espejo');
 require_once 'config.php';
+requireAuth();
 
-// Tamaño máximo permitido para videos (en bytes). 100 MB.
+// Tamaño máximo permitido para videos (en bytes).
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 /**
@@ -149,6 +152,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$ok || !$new_name) { $failed[] = $name; continue; }
+
+        // Miniatura: de la propia imagen, o la portada que generó el navegador para un video.
+        $thumbSrc = $isVideo ? ($_FILES['poster']['tmp_name'] ?? '') : $upload_dir . $new_name;
+        $rutaNueva = ($is_quick_show ? 'uploads/quick_show/' : 'uploads/') . $new_name;
+        if ($thumbSrc !== '' && is_file($thumbSrc)) makeThumb($thumbSrc, '../' . thumbRelPath($rutaNueva));
 
         if ($is_quick_show) {
             $ruta = 'uploads/quick_show/' . $new_name;
