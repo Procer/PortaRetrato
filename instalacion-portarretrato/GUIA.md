@@ -27,28 +27,21 @@ lo que subas vos. Muy por debajo de 5 GB/mes.
    abrir `https://TU-DOMINIO/PortaRetrato/backend/backfill_thumbs.php`.
    Los videos viejos generan su portada solos la primera vez que los abrís en Gestión.
 
-## 2. En la PC del portarretrato
+## 2. En la PC del portarretrato (sin Laragon)
 
-1. Instalar **Laragon** (Apache + PHP; no hace falta MySQL). Copiar o clonar el proyecto en
-   `C:\laragon\www\PortaRetrato`.
-2. Copiar `backend\mirror.config.sample.php` como `backend\mirror.config.php` y completar:
-   - `remote`: URL del proyecto en el hosting, sin barra final.
-   - `token`: el mismo `DEVICE_TOKEN` del hosting.
-3. Probar el agente a mano (desde una consola en la carpeta del proyecto):
-   ```
-   php agente\sync.php
-   ```
-   Debe terminar sin errores y llenar `uploads\` y `mirror\manifest.json`. El detalle queda en
-   `mirror\sync.log`. Si `curl` da error de certificado, descomentar `cainfo` en
-   `mirror.config.php` y apuntarlo a un `cacert.pem`.
-4. Programarlo cada minuto (consola **como administrador**; ajustar la ruta de `php.exe`):
-   ```
-   schtasks /Create /TN "PortaRetrato Sync" /SC MINUTE /MO 1 /RU SYSTEM /F ^
-     /TR "C:\laragon\bin\php\php-8.3.16-Win32-vs16-x64\php.exe C:\laragon\www\PortaRetrato\agente\sync.php"
-   ```
-5. Poner un acceso directo a `iniciar-visor.bat` en `shell:startup` (abre Chrome en modo
-   kiosco contra `http://localhost/PortaRetrato/`). Configurar el autologin de Windows y
-   desactivar la suspensión.
+1. Extraer `PortaRetrato.zip` en `C:\laragon\www\` (o en cualquier carpeta; ahora puede ser otra).
+2. Doble clic en `instalacion-portarretrato\instalar-pc.bat`. Hace todo solo:
+   - descarga un PHP portable dentro de la carpeta `php\` (no instala nada en Windows),
+   - te pide la URL del hosting y el `DEVICE_TOKEN`,
+   - hace una sincronización de prueba (si falla, se detiene y muestra el log),
+   - deja el arranque automático en la carpeta Inicio de Windows,
+   - desactiva la suspensión y el apagado de pantalla.
+3. Inicio de sesión automático de Windows: `Win+R` → `netplwiz` → desmarcar
+   "Los usuarios deben escribir su nombre y contraseña".
+
+Al encender la PC, `portaretrato.ps1` (oculto) levanta el servidor local en
+`http://127.0.0.1:8080`, sincroniza cada 60 s, abre Chrome (o Edge) en pantalla completa y lo
+vuelve a abrir si se cierra. Registro en `mirrorrranque.log` y `mirror\sync.log`.
 
 ## 3. Cómo se usa
 

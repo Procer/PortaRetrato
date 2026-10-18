@@ -1,19 +1,43 @@
-# Instala el espejo en la PC del portarretrato (Windows 10/11, Laragon).
-# Lo lanza instalar-pc.bat como administrador.
+# Instala el portarretrato en esta PC SIN Laragon: PHP portable dentro de la carpeta del proyecto.
+# Lo lanza instalar-pc.bat. Se puede volver a correr sin problema.
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $root = Split-Path -Parent $PSScriptRoot
 Write-Host "`n=== Instalador del portarretrato ===`n" -ForegroundColor Cyan
 Write-Host "Carpeta del proyecto: $root"
-if ($root -ne 'C:\laragon\www\PortaRetrato') {
-    Write-Host "AVISO: el Visor espera estar en C:\laragon\www\PortaRetrato (iniciar-visor.bat abre http://localhost/PortaRetrato/)." -ForegroundColor Yellow
-}
 
-# 1) PHP de Laragon
-$php = Get-ChildItem 'C:\laragon\bin\php\*\php.exe' -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
-if (-not $php) { throw 'No encuentro PHP de Laragon en C:\laragon\bin\php. Instalá Laragon primero (laragon.org).' }
-$php = $php.FullName
-Write-Host "PHP: $php"
-if (-not ((& $php -m) -contains 'curl')) { throw 'Este PHP no tiene la extension curl. Activala en php.ini (extension=curl) y reintentá.' }
+# 1) PHP portable
+$phpDir = Join-Path $root 'php'
+$php = Join-Path $phpDir 'php.exe'
+if (-not (Test-Path $php)) {
+    Write-Host 'Descargando PHP portable (34 MB)...'
+    $zip = Join-Path $env:TEMP 'php-portable.zip'
+    Invoke-WebRequest 'https://windows.php.net/downloads/releases/latest/php-8.3-nts-Win32-vs16-x64-latest.zip' -OutFile $zip -UseBasicParsing
+    Expand-Archive $zip -DestinationPath $phpDir -Force
+    Remove-Item $zip
+}
+$cacert = Join-Path $phpDir 'cacert.pem'
+if (-not (Test-Path $cacert)) {
+    Invoke-WebRequest 'https://curl.se/ca/cacert.pem' -OutFile $cacert -UseBasicParsing
+}
+$ini = @"
+extension_dir="$phpDir\ext"
+extension=curl
+extension=openssl
+extension=mbstring
+curl.cainfo="$cacert"
+openssl.cafile="$cacert"
+date.timezone=America/Argentina/Buenos_Aires
+display_errors=0
+memory_limit=256M
+"@
+[IO.File]::WriteAllText((Join-Path $phpDir 'php.ini'), $ini, (New-Object Text.UTF8Encoding($false)))
+$mods = & $php -m
+if (-not ($mods -contains 'curl')) {
+    throw 'PHP no pudo cargar curl. Suele faltar "Visual C++ Redistributable 2015-2022 x64" (https://aka.ms/vs/17/release/vc_redist.x64.exe). Instalalo y volve a correr este instalador.'
+}
+Write-Host "PHP listo: $(& $php -r 'echo PHP_VERSION;')" -ForegroundColor Green
 
 # 2) Datos del hosting
 $cfgFile = Join-Path $root 'backend\mirror.config.php'
@@ -38,46 +62,37 @@ New-Item -ItemType Directory -Force (Join-Path $root 'uploads') | Out-Null
 $code = $LASTEXITCODE
 $log = Join-Path $root 'mirror\sync.log'
 if (Test-Path $log) { Write-Host "`nUltimas lineas del log:"; Get-Content $log -Tail 5 }
-if ($code -ne 0) {
-    throw "La sincronizacion fallo (codigo $code). Revisá URL/token y mandame el log: $log"
-}
+if ($code -ne 0) { throw "La sincronizacion fallo (codigo $code). Revisa URL/token y mandame el log: $log" }
 Write-Host 'Sincronizacion OK.' -ForegroundColor Green
 
-# 4) Tarea programada cada 1 minuto
-$name = 'PortaRetrato Sync'
-$action   = New-ScheduledTaskAction -Execute $php -Argument ('"' + (Join-Path $root 'agente\sync.php') + '"') -WorkingDirectory $root
-$trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
-Write-Host "Tarea programada '$name' creada (cada 1 minuto)." -ForegroundColor Green
-
-# 5) Visor en modo kiosco al iniciar sesion
+# 4) Arranque automatico al iniciar sesion (oculto)
+Get-ScheduledTask -TaskName 'PortaRetrato Sync' -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue   # tarea de la version con Laragon
 $startup = [Environment]::GetFolderPath('Startup')
+$old = Join-Path $startup 'Portaretrato.lnk'; if (Test-Path $old) { Remove-Item $old -Force }
 $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'Portaretrato.lnk'))
-$lnk.TargetPath = Join-Path $PSScriptRoot 'iniciar-visor.bat'
-$lnk.WorkingDirectory = $PSScriptRoot
+$lnk.TargetPath = 'powershell.exe'
+$lnk.Arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + (Join-Path $PSScriptRoot 'portaretrato.ps1') + '"'
+$lnk.WorkingDirectory = $root
 $lnk.WindowStyle = 7
 $lnk.Save()
-Write-Host "Acceso directo creado en el inicio de Windows." -ForegroundColor Green
+Write-Host 'Arranque automatico configurado (carpeta Inicio de Windows).' -ForegroundColor Green
 
-# 6) Que la PC no se duerma ni apague la pantalla
+# 5) Que la PC no se duerma ni apague la pantalla
 powercfg /change standby-timeout-ac 0 | Out-Null
 powercfg /change monitor-timeout-ac 0 | Out-Null
 powercfg /change hibernate-timeout-ac 0 | Out-Null
 Write-Host 'Suspension y apagado de pantalla desactivados (con corriente).' -ForegroundColor Green
 
-# 7) Verificar que el Visor local responde
-try {
-    $r = Invoke-WebRequest 'http://localhost/PortaRetrato/' -UseBasicParsing -TimeoutSec 5
-    Write-Host 'Visor local OK: http://localhost/PortaRetrato/' -ForegroundColor Green
-} catch {
-    Write-Host 'El Visor local no responde: abrí Laragon y apretá "Iniciar todo".' -ForegroundColor Yellow
+# 6) Arrancar ahora
+$r = Read-Host "`n¿Iniciar el portarretrato ahora? (S/n)"
+if ($r -ne 'n' -and $r -ne 'N') {
+    Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"' + (Join-Path $PSScriptRoot 'portaretrato.ps1') + '"')
+    Write-Host 'Iniciando... en unos segundos se abre el Visor en pantalla completa (salir: Alt+F4).' -ForegroundColor Green
 }
 
 Write-Host @"
 
-=== Falta hacer a mano (no se puede automatizar) ===
- 1. Laragon: Menu > Preferencias > marcar "Ejecutar Laragon al iniciar Windows" y "Iniciar todo automaticamente".
- 2. Inicio de sesion automatico: Win+R > netplwiz > desmarcar "Los usuarios deben escribir su nombre y contrasena".
- 3. Reiniciar la PC y comprobar que el portarretrato arranca solo.
+=== Falta hacer a mano (Windows no deja automatizarlo) ===
+ Inicio de sesion automatico: Win+R > netplwiz > desmarcar "Los usuarios deben escribir su nombre y contrasena".
+ Despues reinicia la PC y comprueba que el portarretrato arranca solo.
 "@ -ForegroundColor Cyan
