@@ -25,10 +25,10 @@ usermod -aG video,audio,render,input "$USER_NAME" 2>/dev/null || usermod -aG vid
 
 # ─── Configuracion del espejo ────────────────────────────────────────────────
 mkdir -p "$APP/uploads" "$APP/mirror"
-cat > "$APP/backend/mirror.config.php" <<EOF
-<?php
-return ['remote' => '$PR_REMOTE', 'token' => '$PR_TOKEN'];
-EOF
+# var_export escapa bien cualquier caracter raro del token
+PR_REMOTE="$PR_REMOTE" PR_TOKEN="$PR_TOKEN" CFG="$APP/backend/mirror.config.php" php -r     'file_put_contents(getenv("CFG"), "<?php
+return " . var_export(["remote" => getenv("PR_REMOTE"), "token" => getenv("PR_TOKEN")], true) . ";
+");'
 chmod 640 "$APP/backend/mirror.config.php"
 chown -R "$USER_NAME:$USER_NAME" "$APP"
 [ -f /etc/default/portaretrato ] || echo '# Opciones extra para Chromium, ej: --disable-gpu (si la placa de video da problemas)
