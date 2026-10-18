@@ -41,7 +41,7 @@ lo que subas vos. Muy por debajo de 5 GB/mes.
 
 Al encender la PC, `portaretrato.ps1` (oculto) levanta el servidor local en
 `http://127.0.0.1:8080`, sincroniza cada 60 s, abre Chrome (o Edge) en pantalla completa y lo
-vuelve a abrir si se cierra. Registro en `mirrorrranque.log` y `mirror\sync.log`.
+vuelve a abrir si se cierra. Registro en `mirror\arranque.log` y `mirror\sync.log`.
 
 ## 3. Cómo se usa
 
