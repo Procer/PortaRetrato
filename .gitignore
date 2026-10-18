@@ -21,3 +21,4 @@ backend/config.php
 # Modo espejo (PC del portarretrato)
 mirror/
 backend/mirror.config.php
+PortaRetrato.zip
