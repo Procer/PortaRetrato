@@ -1,6 +1,7 @@
 // Visor - Porta Retrato v1.1
 let playlist = [];
 let currentIndex = 0;
+let playlistSig = '';
 let currentSettings = { duration: 10, animation: 'fade', clock_style: 'classic', clock_size: 'standard', date_format: 'full', quick_show_duration: 8, recordatorios_duration: 20 };
 let weatherConfig = { city: '', lat: '', lon: '', days: 3, hours: 6, icons: 'aura-glow' };
 let weatherData = null;
@@ -448,18 +449,27 @@ async function syncFromManifest(isFirst = false) {
     // El orden puede cambiar legítimamente entre syncs (foto agregada/borrada/
     // reordenada). Ubicamos por id la foto que se está mostrando para no
     // repetir/saltear al reemplazar la playlist.
-    if (JSON.stringify(mapped) !== JSON.stringify(playlist)) {
+    // La playlist se muestra en orden aleatorio ("bolsa": todas una vez por vuelta,
+    // sin repetir hasta agotarlas). Se compara la fuente sin mezclar para no
+    // re-mezclar en cada consulta.
+    const sig = JSON.stringify(mapped);
+    if (sig !== playlistSig) {
+        playlistSig = sig;
         const wasEmpty = playlist.length === 0;
-        const currentId = playlist[currentIndex] ? playlist[currentIndex].id : null;
-        playlist = mapped;
-        if (playlist.length === 0) {
+        const current = playlist[currentIndex] || null;
+        if (mapped.length === 0) {
+            playlist = [];
             display.innerHTML = '<h2 class="no-content">No hay contenido activo</h2>';
-        } else if (wasEmpty) {
+        } else if (wasEmpty || !current) {
+            playlist = shuffleArray(mapped);
             currentIndex = 0;
-            if (!visorOff) showNext();
+            if (wasEmpty && !visorOff) showNext();
         } else {
-            const idx = currentId !== null ? playlist.findIndex(p => p.id === currentId) : -1;
-            currentIndex = idx >= 0 ? idx : 0;
+            // Lo que se está mostrando queda primero; el resto, mezclado.
+            const rest = shuffleArray(mapped.filter(p => p.id !== current.id));
+            const same = mapped.find(p => p.id === current.id);
+            playlist = same ? [same, ...rest] : rest;
+            currentIndex = 0;
         }
     }
 
@@ -633,9 +643,27 @@ function showNext() {
     }
 }
 
+function shuffleArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
 function advanceIndex() {
     currentIndex++;
-    if (currentIndex >= playlist.length) { currentIndex = 0; }
+    if (currentIndex >= playlist.length) {
+        // Terminó la vuelta: nueva mezcla, evitando que la primera sea la última mostrada.
+        const last = playlist[playlist.length - 1];
+        playlist = shuffleArray(playlist);
+        if (playlist.length > 1 && last && playlist[0].id === last.id) {
+            const k = 1 + Math.floor(Math.random() * (playlist.length - 1));
+            [playlist[0], playlist[k]] = [playlist[k], playlist[0]];
+        }
+        currentIndex = 0;
+    }
 }
 
 function hideEntryOverlay() {
@@ -656,7 +684,8 @@ function preloadNext() {
     // recién al mostrarse (ver showNext) — la espera se cubre dejando la diapositiva
     // anterior visible en pantalla (sin negro) hasta que haya frame decodificado.
     if (playlist.length <= 1) return;
-    const next = playlist[(currentIndex + 1) % playlist.length];
+    // En la última de la vuelta el orden se vuelve a mezclar: no hay "siguiente" conocida.
+    const next = playlist[currentIndex + 1];
     if (next && next.tipo === 'imagen') new Image().src = next.ruta;
 }
 
