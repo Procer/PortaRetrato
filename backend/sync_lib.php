@@ -6,12 +6,14 @@
 //   <SYNC_DIR>-papelera/           lo que se borra desde Gestión (se purga a los 30 días)
 //
 // media.origen = "Álbum/archivo" (la clave); media.ruta = la copia de visualización.
-// SYNC_DIR se define en backend/config.php; si falta se usa <proyecto>/sync.
+// Los archivos sueltos en la raíz de SYNC_DIR forman el álbum "General" (carpeta '').
+// SYNC_DIR se define en backend/config.local.php; si falta se usa <proyecto>/sync.
 
 require_once __DIR__ . '/bootstrap.php';
 
 const SYNC_IMG_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
-const SYNC_VID_EXT = ['mp4', 'webm', 'ogg'];
+const SYNC_VID_EXT = ['mp4', 'webm', 'ogg', 'mov', 'm4v', 'mkv'];
+const GENERAL_ALBUM = 'General';
 const SYNC_TRASH_DAYS = 30;
 
 function projectRoot(): string {
@@ -53,12 +55,17 @@ function syncSkipName(string $name): bool {
 }
 
 /**
- * ['Álbum' => [ ['origen'=>'Álbum/x.jpg','abs'=>…,'mtime'=>…,'size'=>…,'tipo'=>…], … ], …]
+ * ['' => [archivos sueltos], 'Álbum' => [ ['origen'=>'Álbum/x.jpg','abs'=>…,'mtime'=>…,'size'=>…,'tipo'=>…], … ], …]
  * Cada subcarpeta de primer nivel es un álbum (aunque esté vacía); adentro se recorre todo.
  */
 function scanSyncDir(): array {
     $root = syncDir();
-    $out = [];
+    $out = ['' => []];
+    foreach (scandir($root) ?: [] as $f) {
+        $abs = "$root/$f";
+        if ($f[0] === '.' || !is_file($abs) || syncSkipName($f) || !($tipo = syncMediaType($f))) continue;
+        $out[''][] = ['origen' => $f, 'abs' => $abs, 'tipo' => $tipo, 'mtime' => (int)filemtime($abs), 'size' => (int)filesize($abs)];
+    }
     foreach (scandir($root) ?: [] as $album) {
         if ($album === '.' || $album === '..' || $album[0] === '.' || !is_dir("$root/$album")) continue;
         $out[$album] = [];
@@ -128,12 +135,50 @@ function makeDisplayImage(string $source, string $destNoExt) {
     return $ok ? $ext : false;
 }
 
-/** Un video no se recodifica: se enlaza (o copia si no se puede) para tener un nombre de URL seguro. */
+/** Propiedades del video según ffprobe, o null si no se puede leer. */
+function probeVideo(string $path): ?array {
+    $cmd = 'ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,width,height -of json ' . escapeshellarg($path) . ' 2>/dev/null';
+    $out = @shell_exec($cmd);
+    $j = $out ? json_decode($out, true) : null;
+    return $j['streams'][0] ?? null;
+}
+
+/**
+ * Copia de visualización de un video. Si ya es H.264 de hasta 1080 p se enlaza (o copia);
+ * si no (HEVC del celular, 4K…) se recodifica a MP4 H.264 1080 p, que reproduce fluido en el kiosk.
+ */
 function placeVideo(string $source, string $destFull): bool {
     $dir = dirname($destFull);
     if (!is_dir($dir)) @mkdir($dir, 0755, true);
     if (is_file($destFull)) @unlink($destFull);
-    return @link($source, $destFull) || @copy($source, $destFull);
+
+    $info = probeVideo($source);
+    $ext = strtolower(pathinfo($destFull, PATHINFO_EXTENSION));
+    $simple = $info && ($info['codec_name'] ?? '') === 'h264' && (int)($info['height'] ?? 0) <= 1080
+        && (int)($info['width'] ?? 0) <= 1920 && in_array($ext, ['mp4', 'm4v'], true);
+    if ($simple || !$info) return @link($source, $destFull) || @copy($source, $destFull);
+
+    $tmp = $destFull . '.part.mp4';
+    $cmd = 'nice -n 10 ffmpeg -y -v error -i ' . escapeshellarg($source)
+        . ' -vf ' . escapeshellarg("scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2")
+        . ' -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart '
+        . escapeshellarg($tmp) . ' 2>&1';
+    @shell_exec($cmd);
+    if (is_file($tmp) && filesize($tmp) > 0 && @rename($tmp, $destFull)) return true;
+    @unlink($tmp);
+    return false;
+}
+
+/** Portada de un video (fotograma a ~1 s) como miniatura. */
+function makeVideoThumb(string $videoFull, string $destFull): bool {
+    $dir = dirname($destFull);
+    if (!is_dir($dir)) @mkdir($dir, 0755, true);
+    $png = $destFull . '.frame.jpg';
+    @shell_exec('ffmpeg -y -v error -ss 1 -i ' . escapeshellarg($videoFull) . ' -frames:v 1 ' . escapeshellarg($png) . ' 2>&1');
+    if (!is_file($png)) @shell_exec('ffmpeg -y -v error -i ' . escapeshellarg($videoFull) . ' -frames:v 1 ' . escapeshellarg($png) . ' 2>&1');
+    $ok = is_file($png) && makeThumb($png, $destFull);
+    @unlink($png);
+    return $ok;
 }
 
 /** Borra la copia de visualización y la miniatura de una fila de media. */
@@ -196,16 +241,19 @@ function importSyncFolder(PDO $pdo, callable $log): array {
     }
 
     foreach ($disk as $carpeta => $files) {
+        $carpeta = (string)$carpeta;
+        if ($carpeta === '' && !$files && !isset($porCarpeta[''])) continue;   // "General" solo existe si hay archivos sueltos
+        $nombreAlbum = $carpeta === '' ? GENERAL_ALBUM : $carpeta;
         if (isset($porCarpeta[$carpeta])) {
             $albumId = (int)$porCarpeta[$carpeta]['id'];
-        } elseif (isset($sinCarpeta[mb_strtolower($carpeta)])) {
-            $albumId = (int)$sinCarpeta[mb_strtolower($carpeta)]['id'];
+        } elseif (isset($sinCarpeta[mb_strtolower($nombreAlbum)])) {
+            $albumId = (int)$sinCarpeta[mb_strtolower($nombreAlbum)]['id'];
             $pdo->prepare("UPDATE albums SET carpeta = ? WHERE id = ?")->execute([$carpeta, $albumId]);
         } else {
-            $pdo->prepare("INSERT INTO albums (nombre, carpeta) VALUES (?, ?)")->execute([$carpeta, $carpeta]);
+            $pdo->prepare("INSERT INTO albums (nombre, carpeta) VALUES (?, ?)")->execute([$nombreAlbum, $carpeta]);
             $albumId = (int)$pdo->lastInsertId();
             $st['albumes']++;
-            $log("Álbum nuevo: $carpeta");
+            $log("Álbum nuevo: $nombreAlbum");
         }
 
         $stmt = $pdo->prepare("SELECT id, ruta, origen, origen_mtime, origen_size FROM media WHERE album_id = ? AND origen IS NOT NULL");
@@ -229,8 +277,8 @@ function importSyncFolder(PDO $pdo, callable $log): array {
                 $ext = makeDisplayImage($f['abs'], projectRoot() . '/uploads/display/' . $hash);
                 $ok = $ext !== false;
             } else {
-                $ext = strtolower(pathinfo($f['abs'], PATHINFO_EXTENSION));
-                $ok = placeVideo($f['abs'], projectRoot() . "/uploads/display/$hash.$ext");
+                $ext = 'mp4';
+                $ok = placeVideo($f['abs'], projectRoot() . "/uploads/display/$hash.mp4");
             }
             if (!$ok) {
                 $fails[$f['origen']] = $sig;
@@ -242,6 +290,7 @@ function importSyncFolder(PDO $pdo, callable $log): array {
             $ruta = "uploads/display/$hash.$ext";
             deleteThumb($ruta);
             if ($f['tipo'] === 'imagen') makeThumb(projectRoot() . '/' . $ruta, projectRoot() . '/' . thumbRelPath($ruta));
+            else makeVideoThumb(projectRoot() . '/' . $ruta, projectRoot() . '/' . thumbRelPath($ruta));
 
             if ($row) {
                 $pdo->prepare("UPDATE media SET ruta = ?, tipo = ?, origen_mtime = ?, origen_size = ? WHERE id = ?")
@@ -264,7 +313,7 @@ function importSyncFolder(PDO $pdo, callable $log): array {
 
     // Álbumes cuya carpeta desapareció.
     foreach ($porCarpeta as $carpeta => $a) {
-        if (isset($disk[$carpeta])) continue;
+        if (isset($disk[$carpeta]) || $carpeta === '') continue;
         $stmt = $pdo->prepare("SELECT id, ruta, origen FROM media WHERE album_id = ?");
         $stmt->execute([$a['id']]);
         foreach ($stmt->fetchAll() as $r) discardDisplay($r['ruta']);
@@ -275,4 +324,55 @@ function importSyncFolder(PDO $pdo, callable $log): array {
     @file_put_contents($failFile, json_encode($fails));
     purgeTrash();
     return $st;
+}
+
+// ─── Ejecución del importador ────────────────────────────────────────────────
+
+/** Corre importSyncFolder con candado y deja el resultado en agente/importar.log. null si ya hay otra corrida. */
+function runImport(PDO $pdo): ?array {
+    $lock = fopen(sys_get_temp_dir() . '/portaretrato-importar.lock', 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) return null;
+
+    $lines = [];
+    $log = function (string $m) use (&$lines) { $lines[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; };
+    $st = null;
+    try {
+        $st = importSyncFolder($pdo, $log);
+        if ($st['nuevos'] || $st['actualizados'] || $st['borrados'] || $st['fallos'] || $st['albumes']) {
+            $log(sprintf('Listo: %d nuevos, %d actualizados, %d quitados, %d fallos', $st['nuevos'], $st['actualizados'], $st['borrados'], $st['fallos']));
+        }
+    } catch (Throwable $e) {
+        $log('ERROR: ' . $e->getMessage());
+    }
+    if ($lines) {
+        $logFile = projectRoot() . '/agente/importar.log';
+        if (is_file($logFile) && filesize($logFile) > 512 * 1024) @rename($logFile, $logFile . '.old');
+        @file_put_contents($logFile, implode("\n", $lines) . "\n", FILE_APPEND);
+    }
+    flock($lock, LOCK_UN);
+    return $st ?? ['nuevos' => 0, 'actualizados' => 0, 'borrados' => 0, 'fallos' => 1, 'albumes' => 0];
+}
+
+/** Lanza el importador en segundo plano (no espera). Lo usa Gestión tras subir archivos. */
+function spawnImport(): void {
+    $php = defined('PHP_BINARY') && PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    $cmd = escapeshellarg($php) . ' ' . escapeshellarg(projectRoot() . '/agente/importar.php');
+    if (stripos(PHP_OS, 'WIN') === 0) pclose(popen('start /B ' . $cmd . ' > NUL 2>&1', 'r'));
+    else exec($cmd . ' > /dev/null 2>&1 &');
+}
+
+/** Cuántos archivos de la carpeta todavía no están en la base (se están procesando). */
+function pendingImportCount(PDO $pdo): int {
+    if (!syncFolderReady()) return 0;
+    $known = [];
+    foreach ($pdo->query("SELECT origen, origen_mtime, origen_size FROM media WHERE origen IS NOT NULL")->fetchAll() as $r) {
+        $known[$r['origen']] = $r['origen_mtime'] . ':' . $r['origen_size'];
+    }
+    $n = 0;
+    foreach (scanSyncDir() as $files) {
+        foreach ($files as $f) {
+            if (($known[$f['origen']] ?? null) !== $f['mtime'] . ':' . $f['size']) $n++;
+        }
+    }
+    return $n;
 }

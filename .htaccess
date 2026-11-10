@@ -1,3 +1,6 @@
+AddType application/manifest+json .webmanifest
+AddType application/x-x509-ca-cert .crt
+
 # Compresión gzip para respuestas de texto
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
@@ -29,10 +32,6 @@
     <FilesMatch "\.(css|js)$">
         Header set Cache-Control "public, max-age=604800"
     </FilesMatch>
-    # El Service Worker nunca debe quedar cacheado: así los cambios se propagan.
-    <Files "sw.js">
-        Header set Cache-Control "no-cache, no-store, must-revalidate"
-    </Files>
 </IfModule>
 
 # Soporte Range requests para videos (streaming / seek)
@@ -42,10 +41,11 @@
     </FilesMatch>
 </IfModule>
 
-# Nunca ejecutar PHP desde uploads/ y no exponer datos internos del espejo
+# Nunca ejecutar PHP desde uploads/ y no exponer datos internos
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteRule ^uploads/.*\.(php|phtml|phar)$ - [F,L]
-    RewriteRule ^(mirror|agente|sync|sync-papelera)/ - [F,L]
-    RewriteRule ^backend/(mirror\.config|config|bootstrap)\.php$ - [F,L]
+    RewriteRule ^(agente|sync|sync-papelera|instalacion-portarretrato)/ - [F,L]
+    RewriteRule ^backend/(config|config\.local|bootstrap|sync_lib|config\.local\.sample)\.php$ - [F,L]
+    RewriteRule ^schema\.sql$ - [F,L]
 </IfModule>

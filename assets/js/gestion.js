@@ -1,1023 +1,914 @@
-// GESTIÓN COMPLETA (Independiente)
-let currentAlbumId = null;
-let currentAlbumName = "";
+// Gestión — Aura. Aplicación de una sola página, sin librerías externas.
+(() => {
+'use strict';
 
-document.addEventListener('DOMContentLoaded', () => {
-    loadAlbums();
-    const form = document.getElementById('upload-form');
-    if(form) form.addEventListener('submit', (e) => { e.preventDefault(); uploadFiles(); });
+const API = '../backend/api.php';
+const UPLOAD = '../backend/upload.php';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const U = p => '../' + p;   // ruta de archivo del proyecto vista desde /gestion/
+
+// ─── Íconos ──────────────────────────────────────────────────────────────────
+const ICONS = {
+    plus: 'M12 5v14M5 12h14',
+    back: 'm15 18-6-6 6-6',
+    next: 'm9 18 6-6-6-6',
+    x: 'M18 6 6 18M6 6l12 12',
+    check: 'M20 6 9 17l-5-5',
+    trash: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
+    rotateCw: 'M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5',
+    rotateCcw: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5',
+    more: 'M12 12h.01M19 12h.01M5 12h.01',
+    folder: 'M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z',
+    monitor: 'M2 5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zM8 21h8M12 17v4',
+    zap: 'M13 2 3 14h9l-1 8 10-12h-9z',
+    message: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+    sliders: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
+    upload: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12',
+    play: 'm6 3 14 9-14 9z',
+    clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M12 6v6l4 2',
+    image: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2M21 15l-5-5L5 21',
+    eye: 'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6',
+    copy: 'M8 8h12v12H8zM4 16V4h12',
+    link: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
+    refresh: 'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',
+    logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+    search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16M21 21l-4.3-4.3',
+    phone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2M12 18h.01',
+    sliders2: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+    select: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+};
+const ic = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[n] || ''}"/></svg>`;
+
+// ─── Utilidades ──────────────────────────────────────────────────────────────
+async function api(action, { query = {}, body } = {}) {
+    const qs = new URLSearchParams({ action, ...query });
+    const opt = {};
+    if (body !== undefined) {
+        opt.method = 'POST';
+        opt.headers = { 'Content-Type': 'application/json' };
+        opt.body = JSON.stringify(body);
+    }
+    const r = await fetch(`${API}?${qs}`, opt);
+    if (r.status === 401) { location.href = 'login.php'; throw new Error('Sesión vencida'); }
+    let j;
+    try { j = await r.json(); } catch (e) { throw new Error('Respuesta inválida del servidor'); }
+    if (j && j.error) throw new Error(j.error);
+    return j;
+}
+
+function toast(msg, kind = '') {
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    el.innerHTML = (kind === 'ok' ? ic('check') : '') + `<span>${esc(msg)}</span>`;
+    $('#toasts').appendChild(el);
+    setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2400);
+}
+const fail = e => toast(e && e.message ? e.message : 'Algo salió mal', 'err');
+
+// Vibración suave en acciones táctiles (si el celular la permite)
+const buzz = (ms = 8) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+
+function stepper(attrs, val, min, max, unit = '') {
+    return `<div class="stepper">${unit ? `<small>${unit}</small>` : ''}<button type="button" data-step="-1" aria-label="Menos">−</button>
+        <input type="number" inputmode="numeric" min="${min}" max="${max}" value="${esc(val)}" ${attrs}>
+        <button type="button" data-step="1" aria-label="Más">+</button></div>`;
+}
+document.addEventListener('click', e => {
+    const b = e.target.closest('[data-step]');
+    if (!b) return;
+    const inp = $('input', b.parentElement);
+    const min = +inp.min || 0, max = +inp.max || 999;
+    inp.value = Math.max(min, Math.min(max, (+inp.value || min) + (+b.dataset.step)));
+    buzz(6);
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
 });
 
-function setWeatherSize(value, element) {
-    setSegmentValue('weather-size-val', value, element);
-    const preview = document.getElementById('weather-size-preview');
-    if (preview) preview.className = preview.className.replace(/weather-size-\S+/, `weather-size-${value}`);
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+function fmtBytes(b) {
+    if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB';
+    if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB';
+    if (b >= 1e6) return Math.round(b / 1e6) + ' MB';
+    return Math.max(1, Math.round(b / 1e3)) + ' KB';
 }
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-function setWeatherForecastSize(value, element) {
-    setSegmentValue('weather-forecast-size-val', value, element);
-    const preview = document.getElementById('weather-size-preview');
-    if (preview) preview.className = preview.className.replace(/wf-size-\S+/, `wf-size-${value}`);
-}
+// Hojas modales
+const layer = $('#layer');
+function openSheet(html, mount) {
+    const ov = document.createElement('div');
+    ov.className = 'overlay';
+    ov.innerHTML = `<div class="sheet" role="dialog">${html}</div>`;
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    ov.addEventListener('mousedown', e => { if (e.target === ov) close(); });
+    document.addEventListener('keydown', onKey);
+    layer.appendChild(ov);
 
-function setSegmentValue(inputId, value, element) {
-    document.getElementById(inputId).value = value;
-    const parent = element.parentElement;
-    parent.querySelectorAll('.segment-item').forEach(item => item.classList.remove('selected'));
-    element.classList.add('selected');
-}
-
-function openUploadModal() {
-    if(!currentAlbumId) { showNotification("Selecciona un álbum primero", "fas fa-info-circle"); return; }
-    document.getElementById('modal-album-name').innerText = currentAlbumName;
-    document.getElementById('upload-modal').style.display = 'flex';
-}
-
-function openNewAlbumModal() { document.getElementById('album-modal').style.display = 'flex'; }
-
-function closeModal(modalId) {
-    if(modalId) { document.getElementById(modalId).style.display = 'none'; }
-    else { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); }
-}
-
-// ─── Ahorro de datos al subir ────────────────────────────────────────────────
-// Achica la foto en el celular ANTES de subirla (el servidor igual la deja en 1920 px).
-async function shrinkImage(file, maxDim = 2560, quality = 0.85) {
-    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
-    try {
-        const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-        const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
-        if (scale === 1 && file.size < 1.5 * 1024 * 1024) { bmp.close(); return file; }
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(bmp.width * scale);
-        canvas.height = Math.round(bmp.height * scale);
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-        bmp.close();
-        const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
-        if (!blob || blob.size >= file.size) return file;
-        return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
-    } catch (e) { return file; }   // p.ej. HEIC: se sube tal cual
-}
-
-// Portada de un video, sacada en el navegador (el archivo local no consume datos).
-function videoPoster(src) {
-    return new Promise(resolve => {
-        const v = document.createElement('video');
-        v.muted = true; v.playsInline = true; v.preload = 'auto';
-        const done = (blob) => { v.removeAttribute('src'); v.load(); resolve(blob); };
-        const timer = setTimeout(() => done(null), 10000);
-        v.onerror = () => { clearTimeout(timer); done(null); };
-        v.onloadedmetadata = () => { v.currentTime = Math.min(1, (v.duration || 2) / 2); };
-        v.onseeked = () => {
-            const k = Math.min(1, 400 / Math.max(v.videoWidth, v.videoHeight));
-            const c = document.createElement('canvas');
-            c.width = Math.max(1, Math.round(v.videoWidth * k)); c.height = Math.max(1, Math.round(v.videoHeight * k));
-            c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-            c.toBlob(b => { clearTimeout(timer); done(b); }, 'image/jpeg', 0.8);
-        };
-        v.src = src;
+    // Deslizar hacia abajo para cerrar (solo en pantallas angostas)
+    const sh = $('.sheet', ov);
+    let y0 = null, dy = 0;
+    sh.addEventListener('touchstart', e => { y0 = (sh.scrollTop <= 0 && innerWidth < 700) ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+    sh.addEventListener('touchmove', e => {
+        if (y0 === null) return;
+        dy = e.touches[0].clientY - y0;
+        if (dy > 0) { sh.classList.add('dragging'); sh.style.transform = `translateY(${dy}px)`; }
+    }, { passive: true });
+    sh.addEventListener('touchend', () => {
+        if (y0 === null) return;
+        sh.classList.remove('dragging');
+        if (dy > 110) { buzz(6); close(); }
+        else { sh.classList.add('snap'); sh.style.transform = ''; setTimeout(() => sh.classList.remove('snap'), 260); }
+        y0 = null;
     });
+    if (mount) mount($('.sheet', ov), close);
+    return close;
 }
 
-// Un video sin portada la genera la primera vez que se abre (ya lo está bajando igual).
-function healVideoPoster(video, id, quickShow) {
-    video.addEventListener('loadeddata', () => {
-        try {
-            const k = Math.min(1, 400 / Math.max(video.videoWidth, video.videoHeight));
-            const c = document.createElement('canvas');
-            c.width = Math.max(1, Math.round(video.videoWidth * k)); c.height = Math.max(1, Math.round(video.videoHeight * k));
-            c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
-            c.toBlob(b => {
-                if (!b) return;
-                const fd = new FormData();
-                fd.append('id', id); fd.append('poster', b, 'p.jpg');
-                if (quickShow) fd.append('quick_show', '1');
-                fetch('../backend/api.php?action=save_poster', { method: 'POST', body: fd }).then(() => loadMedia()).catch(() => {});
-            }, 'image/jpeg', 0.8);
-        } catch (e) {}
-    }, { once: true });
-}
-
-function openLightbox(url, tipo, healId) {
-    const img = document.getElementById('lightbox-img');
-    const video = document.getElementById('lightbox-video');
-    if (tipo === 'video') {
-        video.src = '../' + url;
-        if (healId) healVideoPoster(video, healId, false);
-        video.style.display = 'block';
-        img.style.display = 'none';
-        img.src = '';
-    } else {
-        img.src = '../' + url;
-        img.style.display = 'block';
-        video.style.display = 'none';
-        video.src = '';
-    }
-    document.getElementById('lightbox-modal').style.display = 'flex';
-}
-
-function closeLightbox() {
-    document.getElementById('lightbox-img').src = '';
-    document.getElementById('lightbox-video').src = '';
-    document.getElementById('lightbox-modal').style.display = 'none';
-}
-
-function showNotification(message, icon = 'fas fa-check-circle', duration = 3000) {
-    const container = document.getElementById('notification-container');
-    const toast = document.createElement('div');
-    toast.className = 'aura-toast';
-    toast.innerHTML = `<i class="fas ${icon}" style="color:var(--accent); font-size:1.2rem;"></i><div class="message">${message}</div><div class="toast-progress" style="animation-duration: ${duration}ms"></div>`;
-    container.appendChild(toast);
-    setTimeout(() => {
-        toast.style.opacity = '0'; toast.style.transform = 'translateY(-20px) scale(0.9)'; toast.style.transition = '0.4s';
-        setTimeout(() => toast.remove(), 400);
-    }, duration);
-}
-
-function showConfirm(title, message, onConfirm, type = 'danger') {
-    const modal = document.getElementById('confirm-modal');
-    document.getElementById('confirm-title').innerText = title;
-    document.getElementById('confirm-message').innerText = message;
-    const btn = document.getElementById('confirm-button');
-    btn.onclick = () => { onConfirm(); closeModal('confirm-modal'); };
-    modal.style.display = 'flex';
-}
-
-async function loadAlbums() {
-    try {
-        const response = await fetch('../backend/api.php?action=list_albums');
-        const albums = await response.json();
-        const list = document.getElementById('album-list');
-        if(!list) return;
-        list.innerHTML = '';
-        const addBtn = document.createElement('div');
-        addBtn.className = 'album-pill'; addBtn.style.background = 'white'; addBtn.style.border = '2px dashed var(--accent)'; addBtn.style.color = 'var(--accent)';
-        addBtn.innerHTML = '<i class="fas fa-plus"></i>'; addBtn.onclick = openNewAlbumModal; list.appendChild(addBtn);
-        if (!albums.error) {
-            albums.forEach(album => {
-                const pill = document.createElement('div');
-                pill.className = `album-pill ${album.id == currentAlbumId ? 'active' : ''}`;
-                const nameSpan = document.createElement('span'); nameSpan.innerText = album.nombre; pill.appendChild(nameSpan);
-                if (album.activo == 1) {
-                    const dot = document.createElement('div'); dot.className = 'live-dot'; pill.appendChild(dot);
-                }
-                pill.onclick = () => selectAlbum(album);
-                list.appendChild(pill);
-            });
-        }
-    } catch (e) { console.error("Error albums", e); }
-}
-
-function selectAlbum(album) {
-    currentAlbumId = album.id; currentAlbumName = album.nombre;
-    document.getElementById('current-active-indicator').style.display = album.activo == 1 ? 'block' : 'none';
-    document.getElementById('album-quick-actions').style.display = 'flex';
-    const uploadBtn = document.getElementById('main-upload-btn'); if(uploadBtn) uploadBtn.style.display = 'flex';
-    loadAlbums(); loadMedia();
-}
-
-function selectClockStyle(style, element) {
-    document.querySelectorAll('.clock-style-card').forEach(card => card.classList.remove('selected'));
-    element.classList.add('selected');
-    document.getElementById('clock-style-val').value = style;
-}
-
-async function openClockModal() {
-    const response = await fetch('../backend/api.php?action=get_weather_settings');
-    const settings = await response.json();
-    const style = settings.clock_style || 'v-1';
-    document.getElementById('clock-style-val').value = style;
-    
-    // Marcar tarjeta
-    document.querySelectorAll('.clock-style-card').forEach(card => {
-        if(card.getAttribute('data-value') === style) card.classList.add('selected');
-        else card.classList.remove('selected');
-    });
-
-    // Marcar Tamaño
-    const size = settings.clock_size || 'standard';
-    document.getElementById('clock-size-val').value = size;
-    document.querySelectorAll('[data-value="' + size + '"]').forEach(el => {
-        if(el.parentElement.contains(document.getElementById('clock-size-val').nextElementSibling)) return; // Evitar conflictos
-        if(el.classList.contains('segment-item')) {
-            el.parentElement.querySelectorAll('.segment-item').forEach(i => i.classList.remove('selected'));
-            el.classList.add('selected');
-        }
-    });
-
-    // Marcar Fecha
-    const dateF = settings.date_format || 'full';
-    document.getElementById('date-format-val').value = dateF;
-    document.querySelectorAll('[data-value="' + dateF + '"]').forEach(el => {
-        if(el.classList.contains('segment-item')) {
-            el.parentElement.querySelectorAll('.segment-item').forEach(i => i.classList.remove('selected'));
-            el.classList.add('selected');
-        }
-    });
-
-    document.getElementById('clock-modal').style.display = 'flex';
-}
-
-async function saveClockSettings() {
-    const settings = {
-        clock_style: document.getElementById('clock-style-val').value,
-        clock_size: document.getElementById('clock-size-val').value,
-        date_format: document.getElementById('date-format-val').value
-    };
-    const response = await fetch('../backend/api.php?action=update_weather_settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
-    });
-    const result = await response.json();
-    if (result.success) { showNotification("Reloj configurado", "fa-clock"); closeModal('clock-modal'); }
-}
-
-function selectWeatherStyle(style, element) {
-    document.querySelectorAll('.style-card:not(.clock-style-card)').forEach(card => card.classList.remove('selected'));
-    element.classList.add('selected');
-    document.getElementById('weather-icons-style').value = style;
-}
-
-async function openWeatherModal() {
-    const response = await fetch('../backend/api.php?action=get_weather_settings');
-    const settings = await response.json();
-    document.getElementById('weather-city-input').value = settings.weather_city || '';
-
-    const icons = settings.weather_icons || 'neo-flat';
-    document.getElementById('weather-icons-style').value = icons;
-    document.querySelectorAll('.weather-icon-card').forEach(el => {
-        el.classList.toggle('selected', el.getAttribute('data-value') === icons);
-    });
-
-    const size = settings.weather_size || 'standard';
-    document.getElementById('weather-size-val').value = size;
-    document.querySelectorAll('#weather-size-control .segment-item').forEach(el => {
-        el.classList.toggle('selected', el.getAttribute('data-value') === size);
-    });
-
-    const forecastSize = settings.weather_forecast_size || 'standard';
-    document.getElementById('weather-forecast-size-val').value = forecastSize;
-    document.querySelectorAll('#weather-forecast-control .segment-item').forEach(el => {
-        el.classList.toggle('selected', el.getAttribute('data-value') === forecastSize);
-    });
-
-    const preview = document.getElementById('weather-size-preview');
-    if (preview) preview.className = `weather-preview-box weather-size-${size} wf-size-${forecastSize}`;
-
-    document.getElementById('weather-modal').style.display = 'flex';
-}
-
-async function saveWeatherOnly() {
-    let cityInput = document.getElementById('weather-city-input').value;
-    if (!cityInput) return;
-    try {
-        let searchName = cityInput.split(',')[0].trim();
-        const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchName)}&count=1&language=es&format=json`);
-        const geoData = await geoRes.json();
-        if (!geoData.results || geoData.results.length === 0) { showNotification("Ciudad no encontrada", "fa-exclamation-circle"); return; }
-        const location = geoData.results[0];
-        const settings = {
-            weather_city: `${location.name}, ${location.admin1 || ''}`,
-            weather_lat: location.latitude.toString(),
-            weather_lon: location.longitude.toString(),
-            weather_size: document.getElementById('weather-size-val').value,
-            weather_forecast_size: document.getElementById('weather-forecast-size-val').value,
-            weather_icons: document.getElementById('weather-icons-style').value
-        };
-        const response = await fetch('../backend/api.php?action=update_weather_settings', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
+function confirmSheet({ title, text, ok = 'Eliminar', danger = true }) {
+    return new Promise(res => {
+        let done = false;
+        const close = openSheet(`
+            <h3>${esc(title)}</h3><p class="sub">${esc(text || '')}</p>
+            <div class="btns"><button class="btn" data-no>Cancelar</button>
+            <button class="btn ${danger ? 'btn-solid-danger' : 'btn-primary'}" data-ok>${esc(ok)}</button></div>`,
+        (sh, c) => {
+            $('[data-no]', sh).onclick = () => { done = true; c(); res(false); };
+            $('[data-ok]', sh).onclick = () => { done = true; c(); res(true); };
         });
-        const result = await response.json();
-        if (result.success) { showNotification(`Clima guardado`, "fa-cloud-sun"); closeModal('weather-modal'); }
-    } catch (e) { showNotification("Error al guardar", "fa-bug"); }
+        const ov = layer.lastElementChild;
+        new MutationObserver((_, o) => { if (!ov.isConnected) { o.disconnect(); if (!done) res(false); } }).observe(layer, { childList: true });
+        return close;
+    });
 }
 
-async function openGeneralSettingsModal() {
-    const response = await fetch('../backend/api.php?action=get_weather_settings');
-    const settings = await response.json();
-    document.getElementById('slide-duration').value = settings.slide_duration || '10';
-    document.getElementById('slide-animation').value = settings.slide_animation || 'fade';
-    const nightMode = settings.night_mode_enabled || '0';
-    document.getElementById('night-mode-val').value = nightMode;
-    document.querySelectorAll('#night-mode-control .segment-item').forEach(el => {
-        el.classList.toggle('selected', el.getAttribute('data-value') === nightMode);
-    });
-    document.getElementById('night-start-input').value = settings.night_start || '23:00';
-    document.getElementById('night-end-input').value = settings.night_end || '07:00';
+// ─── Estado y rutas ──────────────────────────────────────────────────────────
+const main = $('#main');
+let pollTimer = null;
+let navToken = 0;
+const TABS = [
+    ['albumes', 'Álbumes', 'folder'],
+    ['pantalla', 'Pantalla', 'monitor'],
+    ['pase', 'Pase Rápido', 'zap'],
+    ['mensajes', 'Mensajes', 'message'],
+    ['sistema', 'Sistema', 'sliders'],
+];
 
-    // Horario de encendido del Visor
-    const sched = settings.visor_schedule_enabled || '0';
-    document.getElementById('visor-schedule-val').value = sched;
-    document.querySelectorAll('#visor-schedule-control .segment-item').forEach(el => {
-        el.classList.toggle('selected', el.getAttribute('data-value') === sched);
+function renderTabs(active) {
+    $('#tabbar').innerHTML = TABS.map(([id, label, icon]) =>
+        `<a class="tab ${active === id ? 'on' : ''}" href="#/${id}">${ic(icon)}<span>${label}</span></a>`).join('');
+    $$('.tab').forEach(t => t.addEventListener('click', () => buzz(6)));
+}
+
+function route() {
+    clearTimeout(pollTimer);
+    const parts = (location.hash.replace(/^#\/?/, '') || 'albumes').split('/');
+    const token = ++navToken;
+    const tab = TABS.find(t => t[0] === parts[0]) ? parts[0] : 'albumes';
+    renderTabs(tab);
+    const views = { albumes: () => parts[1] ? viewAlbum(+parts[1], token) : viewAlbums(token), pantalla: viewPantalla, pase: viewPase, mensajes: viewMensajes, sistema: viewSistema };
+    main.innerHTML = tab === 'albumes'
+        ? '<div class="skel-wrap"><div class="skel skel-title"></div><div class="skel skel-hero"></div><div class="skel-cards"><div class="skel"></div><div class="skel"></div></div></div>'
+        : '<div class="skel-wrap"><div class="skel skel-title"></div><div class="skel skel-block"></div><div class="skel skel-block"></div><div class="skel skel-block"></div></div>';
+    main.dataset.fresh = '1';
+    window.scrollTo(0, 0);
+    Promise.resolve(views[tab](token)).catch(fail);
+}
+window.addEventListener('hashchange', route);
+
+// Animación de entrada solo cuando cambia de pantalla (no en cada refresco)
+new MutationObserver(() => {
+    if (main.dataset.fresh && !main.querySelector('.skel-wrap')) {
+        delete main.dataset.fresh;
+        main.classList.remove('view-in'); void main.offsetWidth; main.classList.add('view-in');
+    }
+}).observe(main, { childList: true });
+
+// Tirar hacia abajo para actualizar
+(() => {
+    const ptr = document.createElement('div');
+    ptr.className = 'ptr';
+    ptr.innerHTML = ic('refresh');
+    document.body.appendChild(ptr);
+    let y0 = null, pull = 0;
+    addEventListener('touchstart', e => { y0 = (scrollY <= 0 && !layer.children.length) ? e.touches[0].clientY : null; pull = 0; }, { passive: true });
+    addEventListener('touchmove', e => {
+        if (y0 === null) return;
+        pull = Math.max(0, Math.min(120, (e.touches[0].clientY - y0) * 0.5));
+        ptr.style.opacity = Math.min(1, pull / 50);
+        ptr.style.transform = `translateY(${pull - 50}px)`;
+        $('svg', ptr).style.transform = `rotate(${pull * 5}deg)`;
+    }, { passive: true });
+    addEventListener('touchend', () => {
+        if (y0 === null) return;
+        if (pull > 55) { buzz(10); route(); }
+        ptr.style.transition = 'opacity .25s, transform .25s'; ptr.style.opacity = 0; ptr.style.transform = 'translateY(-60px)';
+        setTimeout(() => { ptr.style.transition = ''; }, 260);
+        y0 = null; pull = 0;
     });
-    document.getElementById('visor-on-input').value = settings.visor_on || '07:00';
-    document.getElementById('visor-off-input').value = settings.visor_off || '23:00';
+})();
+const alive = t => t === navToken;
+
+// ─── ÁLBUMES ─────────────────────────────────────────────────────────────────
+async function viewAlbums(token) {
+    const [albums, status] = await Promise.all([api('list_albums'), api('get_status')]);
+    if (!alive(token)) return;
+    const active = albums.find(a => +a.activo);
+
+    const hero = active
+        ? `<div class="hero fade-in" data-open="${active.id}">
+               <div class="bg" style="${active.portada ? `background-image:url('${esc(U(active.portada))}')` : ''}"></div>
+               <span class="tag">En pantalla ahora</span>
+               <h2>${esc(active.nombre)}</h2>
+               <p>${albumCount(active)}</p>
+           </div>`
+        : `<div class="hero empty fade-in"><span class="tag" style="background:rgba(255,255,255,.18)">Sin álbum activo</span><h2>Nada en pantalla</h2><p>Abrí un álbum y elegí “Mostrar en pantalla”.</p></div>`;
+
+    const cards = albums.map(a => `
+        <button class="album-card fade-in" data-open="${a.id}">
+            <div class="cover" style="${a.portada ? `background-image:url('${esc(U(a.portada))}')` : ''}">
+                ${a.portada ? '' : ic('image')}
+                ${+a.activo ? '<span class="live">En pantalla</span>' : ''}
+            </div>
+            <div class="meta"><b>${esc(a.nombre)}</b><span>${albumCount(a)}</span></div>
+        </button>`).join('');
+
+    main.innerHTML = `
+        <div class="page-head"><h1>Álbumes</h1><button class="btn btn-primary" data-new>${ic('plus')} Nuevo</button></div>
+        ${status.pendientes > 0 ? `<div class="banner"><span class="spin"></span>Procesando ${plural(status.pendientes, 'archivo nuevo', 'archivos nuevos')}…</div>` : ''}
+        ${hero}
+        ${albums.length ? `<div class="album-grid">${cards}</div>` : `
+            <div class="empty">${ic('folder')}<b>Todavía no hay álbumes</b>Creá uno, o sincronizá una carpeta desde el celular (Sistema → Sincronización).</div>`}`;
+
+    $$('[data-open]').forEach(el => el.onclick = () => { location.hash = `#/albumes/${el.dataset.open}`; });
+    $('[data-new]').onclick = newAlbumSheet;
+    if (status.pendientes > 0) pollTimer = setTimeout(() => { if (alive(token)) viewAlbums(token).catch(() => {}); }, 4000);
+}
+
+const albumCount = a => {
+    const fotos = (+a.total) - (+a.videos);
+    const parts = [];
+    if (fotos) parts.push(plural(fotos, 'foto', 'fotos'));
+    if (+a.videos) parts.push(plural(+a.videos, 'video', 'videos'));
+    return parts.join(' · ') || 'Vacío';
+};
+
+function newAlbumSheet() {
+    openSheet(`
+        <h3>Nuevo álbum</h3><p class="sub">Se crea una carpeta con este nombre; también aparece en la carpeta sincronizada del celular.</p>
+        <input type="text" id="na-name" placeholder="Ej: Vacaciones 2026" maxlength="80" autocomplete="off">
+        <div class="btns"><button class="btn" data-no>Cancelar</button><button class="btn btn-primary" data-ok>Crear</button></div>`,
+    (sh, close) => {
+        const input = $('#na-name', sh);
+        setTimeout(() => input.focus(), 50);
+        const go = async () => {
+            const nombre = input.value.trim();
+            if (!nombre) { input.focus(); return; }
+            try {
+                const r = await api('create_album', { body: { nombre } });
+                close();
+                location.hash = `#/albumes/${r.id}`;
+            } catch (e) { fail(e); }
+        };
+        $('[data-ok]', sh).onclick = go;
+        $('[data-no]', sh).onclick = close;
+        input.onkeydown = e => { if (e.key === 'Enter') go(); };
+    });
+}
+
+// ─── ÁLBUM ───────────────────────────────────────────────────────────────────
+async function viewAlbum(id, token) {
+    const [albums, media, status] = await Promise.all([api('list_albums'), api('get_album_media', { query: { id } }), api('get_status')]);
+    if (!alive(token)) return;
+    const album = albums.find(a => +a.id === id);
+    if (!album) { location.hash = '#/albumes'; return; }
+    const st = { selecting: false, sel: new Set() };
+    const isGeneral = album.carpeta === '';
+    const isActive = !!+album.activo;
+
+    const draw = () => {
+        const fotos = media.filter(m => m.tipo === 'imagen').length;
+        const vids = media.length - fotos;
+        main.innerHTML = `
+            <div class="topbar">
+                ${st.selecting
+                    ? `<button class="icon-btn" data-cancel>${ic('x')}</button><h2>${st.sel.size ? plural(st.sel.size, 'seleccionada', 'seleccionadas') : 'Elegí fotos'}</h2>
+                       <button class="icon-btn" style="color:var(--danger)" data-del-sel ${st.sel.size ? '' : 'disabled'}>${ic('trash')}</button>`
+                    : `<a class="icon-btn" href="#/albumes">${ic('back')}</a><h2>${esc(album.nombre)}</h2>
+                       <button class="icon-btn" data-menu>${ic('more')}</button>`}
+            </div>
+            ${status.pendientes > 0 ? `<div class="banner"><span class="spin"></span>Procesando ${plural(status.pendientes, 'archivo nuevo', 'archivos nuevos')}…</div>` : ''}
+            <div class="chips">
+                ${isActive ? '<span class="chip live">En pantalla</span>' : ''}
+                <span class="chip">${plural(fotos, 'foto', 'fotos')}</span>
+                ${vids ? `<span class="chip">${plural(vids, 'video', 'videos')}</span>` : ''}
+                ${album.duracion_default ? `<span class="chip">${album.duracion_default} s por foto</span>` : ''}
+                ${album.animacion_tipo ? `<span class="chip">${esc(ANIM_LABEL[album.animacion_tipo] || album.animacion_tipo)}</span>` : ''}
+            </div>
+            <div class="action-row">
+                ${isActive ? '' : `<button class="btn btn-primary" data-activate>${ic('monitor')} Mostrar en pantalla</button>`}
+                ${media.length ? `<button class="btn" data-select>${ic('select')} Seleccionar</button>` : ''}
+            </div>
+            ${media.length ? `<div class="media-grid ${st.selecting ? 'selecting' : ''}">${media.map((m, i) => `
+                <button class="tile ${st.sel.has(m.id) ? 'sel' : ''}" data-i="${i}">
+                    ${m.thumb ? `<img src="${esc(U(m.thumb))}" loading="lazy" alt="" onload="this.classList.add('ld')">` : ''}
+                    <span class="chk">${ic('check')}</span>
+                    ${m.tipo === 'video' ? `<span class="vid">${ic('play')}</span>` : ''}
+                    ${+m.duracion_img > 0 ? `<span class="dur">${m.duracion_img}s</span>` : ''}
+                </button>`).join('')}</div>`
+            : `<div class="empty">${ic('image')}<b>Álbum vacío</b>Tocá el botón + para agregar, o copiá fotos a la carpeta <b style="display:inline">${esc(album.carpeta === '' ? 'Fotos' : (album.carpeta || album.nombre))}</b> desde el celular.</div>`}
+            ${st.selecting ? '' : `<button class="fab" data-add aria-label="Agregar fotos y videos">${ic('plus')}</button>`}`;
+
+        // Tocar abre; mantener apretado empieza a seleccionar
+        $$('.tile').forEach(t => {
+            let timer = null;
+            const m = media[+t.dataset.i];
+            t.addEventListener('pointerdown', () => {
+                timer = setTimeout(() => {
+                    buzz(15); st.selecting = true; st.sel.add(m.id);
+                    st.justLong = true; setTimeout(() => { st.justLong = false; }, 600);   // ignora el "click" que sigue al soltar
+                    draw();
+                }, 480);
+            });
+            ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => t.addEventListener(ev, () => clearTimeout(timer)));
+            t.addEventListener('contextmenu', e => e.preventDefault());
+            t.onclick = () => {
+                if (st.justLong) return;
+                if (st.selecting) { buzz(6); st.sel.has(m.id) ? st.sel.delete(m.id) : st.sel.add(m.id); draw(); }
+                else openLightbox(media, +t.dataset.i, onChanged);
+            };
+        });
+        const q = s => $(s);
+        if (q('[data-add]')) q('[data-add]').onclick = () => { buzz(8); uploadSheet(album, onUploaded); };
+        if (q('[data-activate]')) q('[data-activate]').onclick = async () => {
+            try { await api('set_active_album', { query: { id } }); toast('Ahora se muestra en la pantalla', 'ok'); viewAlbum(id, token); } catch (e) { fail(e); }
+        };
+        if (q('[data-select]')) q('[data-select]').onclick = () => { st.selecting = true; st.sel.clear(); draw(); };
+        if (q('[data-cancel]')) q('[data-cancel]').onclick = () => { st.selecting = false; st.sel.clear(); draw(); };
+        if (q('[data-del-sel]')) q('[data-del-sel]').onclick = async () => {
+            if (!await confirmSheet({ title: `¿Eliminar ${plural(st.sel.size, 'archivo', 'archivos')}?`, text: 'También se borran de la carpeta sincronizada y del celular. Quedan 30 días en la papelera.' })) return;
+            try {
+                for (const mid of st.sel) await api('delete_media', { query: { id: mid } });
+                toast('Eliminado', 'ok');
+                viewAlbum(id, token);
+            } catch (e) { fail(e); }
+        };
+        if (q('[data-menu]')) q('[data-menu]').onclick = () => albumMenu(album, token);
+    };
+
+    const onChanged = () => viewAlbum(id, token);
+    const onUploaded = () => { toast('Archivos subidos, procesando…', 'ok'); viewAlbum(id, token); };
+    draw();
+    if (status.pendientes > 0) pollTimer = setTimeout(() => { if (alive(token)) viewAlbum(id, token).catch(() => {}); }, 4000);
+}
+
+const ANIM_LABEL = { fade: 'Desvanecer', slide: 'Deslizar', zoom: 'Zoom', none: 'Sin animación' };
+const ANIM_OPTS = Object.entries(ANIM_LABEL).map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+
+function albumMenu(album, token) {
+    openSheet(`
+        <h3>${esc(album.nombre)}</h3>
+        <div class="menu" style="margin-top:10px">
+            <button data-s>${ic('sliders2')} Ajustes del álbum</button>
+            <button data-e>${ic('trash')} Vaciar álbum</button>
+            ${album.carpeta === '' ? '' : `<button class="danger" data-d>${ic('trash')} Eliminar álbum</button>`}
+        </div>`,
+    (sh, close) => {
+        $('[data-s]', sh).onclick = () => { close(); albumSettingsSheet(album, token); };
+        $('[data-e]', sh).onclick = async () => {
+            close();
+            if (!await confirmSheet({ title: '¿Vaciar el álbum?', text: 'Se borran todas las fotos y videos, también del celular. Quedan 30 días en la papelera.', ok: 'Vaciar' })) return;
+            try { await api('empty_album', { query: { id: album.id } }); toast('Álbum vaciado', 'ok'); viewAlbum(+album.id, token); } catch (e) { fail(e); }
+        };
+        const d = $('[data-d]', sh);
+        if (d) d.onclick = async () => {
+            close();
+            if (!await confirmSheet({ title: '¿Eliminar el álbum?', text: 'Se borra el álbum y su carpeta, también del celular. Queda 30 días en la papelera.' })) return;
+            try { await api('delete_album', { query: { id: album.id } }); toast('Álbum eliminado', 'ok'); location.hash = '#/albumes'; } catch (e) { fail(e); }
+        };
+    });
+}
+
+function albumSettingsSheet(album, token) {
+    openSheet(`
+        <h3>Ajustes del álbum</h3><p class="sub">Si lo dejás vacío se usa lo configurado en Pantalla.</p>
+        <div class="card" style="margin:0;box-shadow:none;background:var(--surface-2);border:none">
+            <div class="row"><div class="lbl"><b>Segundos por foto</b></div><input type="number" id="as-dur" min="0" max="300" placeholder="Global" value="${album.duracion_default || ''}"></div>
+            <div class="row"><div class="lbl"><b>Animación</b></div><select id="as-anim"><option value="">Global</option>${ANIM_OPTS}</select></div>
+        </div>
+        <div class="btns"><button class="btn" data-no>Cancelar</button><button class="btn btn-primary" data-ok>Guardar</button></div>`,
+    (sh, close) => {
+        $('#as-anim', sh).value = album.animacion_tipo || '';
+        $('[data-no]', sh).onclick = close;
+        $('[data-ok]', sh).onclick = async () => {
+            try {
+                await api('update_album_settings', { body: { id: +album.id, duracion: +$('#as-dur', sh).value || 0, animacion: $('#as-anim', sh).value } });
+                close(); toast('Guardado', 'ok'); viewAlbum(+album.id, token);
+            } catch (e) { fail(e); }
+        };
+    });
+}
+
+// Subida de archivos (uno por uno, con progreso)
+function uploadSheet(album, done, extra = {}) {
+    const accept = extra.accept || 'image/*,video/*';
+    openSheet(`
+        <h3>${esc(extra.title || 'Agregar al álbum')}</h3>
+        <p class="sub">${esc(extra.sub || 'Elegí fotos y videos de este dispositivo. Se guardan en la carpeta del álbum.')}</p>
+        <label class="dropzone" id="up-drop">${ic('upload')}<b>Elegir archivos</b>o arrastralos hasta acá
+            <input type="file" id="up-file" multiple accept="${accept}" hidden></label>
+        <div id="up-list" style="margin-top:14px"></div>
+        <div class="btns" id="up-btns" hidden><button class="btn btn-primary" data-close>Listo</button></div>`,
+    (sh, close) => {
+        const input = $('#up-file', sh), drop = $('#up-drop', sh), list = $('#up-list', sh);
+        let busy = false;
+        const start = async files => {
+            files = [...files];
+            if (!files.length || busy) return;
+            busy = true;
+            drop.hidden = true;
+            list.innerHTML = files.map((f, i) => `<div class="upload-item"><span class="nm">${esc(f.name)}</span><span class="st" id="up-st-${i}">En espera</span></div><div class="bar" style="margin-bottom:6px"><i id="up-bar-${i}"></i></div>`).join('');
+            let ok = 0;
+            for (let i = 0; i < files.length; i++) {
+                const st = $('#up-st-' + i, sh), bar = $('#up-bar-' + i, sh);
+                try {
+                    await sendFile(files[i], extra.fields || { album_id: album.id }, pct => { st.textContent = pct + '%'; bar.style.width = pct + '%'; });
+                    st.textContent = 'Listo'; st.className = 'st ok'; bar.style.width = '100%'; ok++;
+                } catch (e) { st.textContent = 'Error'; st.className = 'st err'; st.title = e.message; }
+            }
+            busy = false;
+            $('#up-btns', sh).hidden = false;
+            $('[data-close]', sh).onclick = () => { close(); if (ok) done && done(); };
+        };
+        input.onchange = () => start(input.files);
+        ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+        ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+        drop.addEventListener('drop', e => start(e.dataTransfer.files));
+    });
+}
+
+function sendFile(file, fields, onProgress) {
+    return new Promise((resolve, reject) => {
+        const fd = new FormData();
+        Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+        fd.append('media[]', file);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', UPLOAD);
+        xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100)); };
+        xhr.onload = () => {
+            if (xhr.status === 401) { location.href = 'login.php'; return; }
+            try {
+                const j = JSON.parse(xhr.responseText);
+                if (j.error) return reject(new Error(j.error));
+                if (j.failed && j.failed.length) return reject(new Error('Formato no soportado'));
+                resolve(j);
+            } catch (e) { reject(new Error('Respuesta inválida')); }
+        };
+        xhr.onerror = () => reject(new Error('Sin conexión'));
+        xhr.send(fd);
+    });
+}
+
+// ─── Visor de fotos a pantalla completa ─────────────────────────────────────
+function openLightbox(media, start, onChanged) {
+    let i = start, changed = false;
+    const ov = document.createElement('div');
+    ov.className = 'lightbox';
+    layer.appendChild(ov);
+
+    const close = () => { document.removeEventListener('keydown', onKey); ov.remove(); if (changed) onChanged(); };
+    const onKey = e => {
+        if (e.key === 'Escape') close();
+        else if (e.key === 'ArrowLeft') go(-1);
+        else if (e.key === 'ArrowRight') go(1);
+    };
+    document.addEventListener('keydown', onKey);
+
+    function go(d) { if (!media.length) return close(); i = (i + d + media.length) % media.length; show(); }
+
+    function show() {
+        const m = media[i];
+        ov.innerHTML = `
+            <div class="lb-top"><button class="icon-btn" data-close>${ic('x')}</button><span class="count">${i + 1} / ${media.length}</span><span style="width:42px"></span></div>
+            <button class="icon-btn nav prev" data-prev>${ic('back')}</button>
+            <div class="stage">${m.tipo === 'video'
+                ? `<video src="${esc(U(m.ruta))}" controls autoplay playsinline></video>`
+                : `<img src="${esc(U(m.ruta))}" alt="">`}</div>
+            <button class="icon-btn nav next" data-next>${ic('next')}</button>
+            <div class="lb-bottom">
+                ${m.tipo === 'imagen' ? `<button class="lb-pill" data-rot="270">${ic('rotateCcw')}</button><button class="lb-pill" data-rot="90">${ic('rotateCw')}</button>` : ''}
+                <button class="lb-pill" data-dur>${ic('clock')} ${+m.duracion_img > 0 ? m.duracion_img + ' s' : 'Duración'}</button>
+                <button class="lb-pill danger" data-del>${ic('trash')}</button>
+            </div>`;
+        $('[data-close]', ov).onclick = close;
+        $('[data-prev]', ov).onclick = () => go(-1);
+        $('[data-next]', ov).onclick = () => go(1);
+        $$('[data-rot]', ov).forEach(b => b.onclick = async () => {
+            try {
+                await api('rotate_media', { body: { id: +m.id, degrees: +b.dataset.rot } });
+                const bust = '?r=' + Date.now();
+                m.ruta = m.ruta.replace(/\?.*$/, '') + bust;
+                if (m.thumb) m.thumb = m.thumb.replace(/\?.*$/, '') + bust;
+                changed = true; show();
+            } catch (e) { fail(e); }
+        });
+        $('[data-dur]', ov).onclick = () => durationSheet(m, () => { changed = true; show(); });
+        $('[data-del]', ov).onclick = async () => {
+            if (!await confirmSheet({ title: '¿Eliminar?', text: 'Se borra también de la carpeta sincronizada y del celular. Queda 30 días en la papelera.' })) return;
+            try {
+                await api('delete_media', { query: { id: m.id } });
+                media.splice(i, 1); changed = true;
+                if (!media.length) return close();
+                i = Math.min(i, media.length - 1); show(); toast('Eliminado', 'ok');
+            } catch (e) { fail(e); }
+        };
+    }
+
+    // Gestos: deslizar de costado cambia de foto, hacia abajo cierra, doble toque hace zoom
+    let x0 = null, y0 = null, dyNow = 0;
+    ov.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dyNow = 0; }, { passive: true });
+    ov.addEventListener('touchmove', e => {
+        if (x0 === null) return;
+        const st = $('.stage', ov), img = $('img', st);
+        if (img && img.style.transform.includes('scale(2')) return;   // con zoom no se arrastra
+        dyNow = e.touches[0].clientY - y0;
+        const dx = e.touches[0].clientX - x0;
+        if (dyNow > 0 && Math.abs(dyNow) > Math.abs(dx)) { st.style.transform = `translateY(${dyNow}px)`; st.style.opacity = Math.max(.3, 1 - dyNow / 500); }
+    }, { passive: true });
+    ov.addEventListener('touchend', e => {
+        if (x0 === null) return;
+        const dx = e.changedTouches[0].clientX - x0; x0 = null;
+        const st = $('.stage', ov);
+        if (dyNow > 110 && dyNow > Math.abs(dx)) { buzz(8); return close(); }
+        if (st) { st.style.transform = ''; st.style.opacity = ''; }
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dyNow)) { buzz(5); go(dx < 0 ? 1 : -1); }
+    });
+    ov.addEventListener('dblclick', e => {
+        const img = e.target.closest('img');
+        if (!img) return;
+        const zoomed = img.style.transform.includes('scale(2');
+        img.style.transformOrigin = `${(e.offsetX / img.clientWidth) * 100}% ${(e.offsetY / img.clientHeight) * 100}%`;
+        img.style.transform = zoomed ? '' : 'scale(2.4)';
+        buzz(6);
+    });
+    show();
+}
+
+function durationSheet(m, done) {
+    openSheet(`
+        <h3>Duración en pantalla</h3><p class="sub">Cuántos segundos se muestra esta ${m.tipo === 'video' ? 'portada' : 'foto'}. Vacío = la del álbum o la global.</p>
+        <input type="number" id="md-dur" min="0" max="300" placeholder="Automática" value="${+m.duracion_img > 0 ? m.duracion_img : ''}">
+        <div class="btns"><button class="btn" data-no>Cancelar</button><button class="btn btn-primary" data-ok>Guardar</button></div>`,
+    (sh, close) => {
+        $('[data-no]', sh).onclick = close;
+        $('[data-ok]', sh).onclick = async () => {
+            const v = +$('#md-dur', sh).value || 0;
+            try { await api('update_media_duration', { body: { id: +m.id, duracion: v } }); m.duracion_img = v || null; close(); done(); toast('Guardado', 'ok'); } catch (e) { fail(e); }
+        };
+    });
+}
+
+// ─── PANTALLA (ajustes del Visor) ───────────────────────────────────────────
+let queued = {};
+const flushSettings = debounce(async () => {
+    const data = queued; queued = {};
+    try { await api('update_settings', { body: data }); toast('Guardado', 'ok'); } catch (e) { fail(e); }
+}, 450);
+const setSetting = (k, v) => { queued[k] = String(v); flushSettings(); };
+
+const seg = (id, opts, cur) => `<div class="seg" data-seg="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const sw = (id, on) => `<label class="switch"><input type="checkbox" data-sw="${id}" ${on ? 'checked' : ''}><i></i></label>`;
+const SIZES = [['small', 'Pequeño'], ['standard', 'Estándar'], ['large', 'Grande'], ['extra', 'Extra']];
+const WX_STYLES = [
+    ['aura-glow', 'Glow', 'fill', 'filter:drop-shadow(0 4px 8px rgba(0,0,0,.35))'],
+    ['neo-flat', 'Flat', 'fill', ''],
+    ['minimal-line', 'Línea', 'line', 'filter:brightness(0) invert(1)'],
+    ['vibrant-anim', 'Vibrante', 'fill', 'filter:sepia(1) saturate(3) hue-rotate(320deg) brightness(1.2)'],
+    ['glassmorphism', 'Glass', 'fill', 'filter:opacity(.7) drop-shadow(0 0 6px rgba(255,255,255,.6))'],
+];
+
+async function viewPantalla(token) {
+    const s = await api('get_settings');
+    if (!alive(token)) return;
+    const g = (k, d) => (s[k] !== undefined && s[k] !== '') ? s[k] : d;
+    const clock = { style: g('clock_style', 'v-1'), size: g('clock_size', 'standard'), date: g('date_format', 'full') };
+
+    const dateStr = fmt => {
+        const n = new Date();
+        const dn = n.toLocaleDateString('es-ES', { weekday: 'short' }).toUpperCase().replace('.', '');
+        const mn = n.toLocaleDateString('es-ES', { month: 'short' }).toUpperCase().replace('.', '');
+        const d = n.getDate(), mo = String(n.getMonth() + 1).padStart(2, '0'), y = n.getFullYear();
+        if (fmt === 'standard') return `${d} ${mn} ${y}`;
+        if (fmt === 'numeric') return `${d} / ${mo} / ${y}`;
+        if (fmt === 'short') return `${dn} ${d} ${mn}`;
+        if (fmt === 'minimal') return `${dn} ${d}`;
+        return `${dn} ${d} ${mn} ${y}`;
+    };
+    const hhmm = () => { const n = new Date(); return String(n.getHours()).padStart(2, '0') + ':' + String(n.getMinutes()).padStart(2, '0'); };
+    const clockHtml = (style, size, withDate) => `<div class="cp size-${size}"><div class="clock-glass style-${style}"><div class="ct">${hhmm()}</div>${withDate ? `<div class="cd">${dateStr(clock.date)}</div>` : ''}</div></div>`;
+
+    const restImg = s.visor_off_image || '';
+    main.innerHTML = `
+        <div class="page-head"><h1>Pantalla</h1><button class="btn" data-preview>${ic('eye')} Ver</button></div>
+        <p class="page-sub">Lo que cambies se guarda solo y se ve en el portarretrato en menos de un minuto.</p>
+
+        <div class="section-title">Presentación</div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Segundos por foto</b><small>Un álbum o una foto pueden tener la suya</small></div>${stepper('data-s="slide_duration"', g('slide_duration', '10'), 1, 120)}</div>
+            <div class="row"><div class="lbl"><b>Animación</b></div><select data-s="slide_animation">${ANIM_OPTS}</select></div>
+        </div>
+
+        <div class="section-title">Reloj</div>
+        <div class="card pad">
+            <div class="preview-stage" id="clk-prev">${clockHtml(clock.style, clock.size, true)}</div>
+            <div class="style-scroller" id="clk-styles" style="margin-top:14px">
+                ${Array.from({ length: 25 }, (_, n) => `<button class="style-opt ${clock.style === 'v-' + (n + 1) ? 'on' : ''}" data-style="v-${n + 1}" aria-label="Estilo ${n + 1}">${clockHtml('v-' + (n + 1), 'standard', false)}</button>`).join('')}
+            </div>
+            <div class="row col" style="padding-bottom:4px"><div class="lbl"><b>Tamaño</b></div>${seg('clock_size', SIZES, clock.size)}</div>
+            <div class="row col" style="border-top:1px solid var(--line)"><div class="lbl"><b>Formato de fecha</b></div>${seg('date_format', [['full', 'Completo'], ['standard', 'Estándar'], ['numeric', 'Numérico'], ['short', 'Corto']], clock.date)}</div>
+        </div>
+
+        <div class="section-title">Clima</div>
+        <div class="card pad">
+            <div class="lbl" style="margin-bottom:8px"><b>Ciudad</b></div>
+            <div class="inline-form"><input type="text" id="wx-city" placeholder="Ej: Zárate, Argentina" value="${esc(g('weather_city', ''))}"><button class="btn btn-primary" id="wx-find">${ic('search')}</button></div>
+            <p class="hint" id="wx-found" style="margin-top:8px">${s.weather_lat ? 'Ubicación guardada.' : 'Escribí una ciudad y tocá buscar.'}</p>
+            <div class="lbl" style="margin:18px 0 8px"><b>Estilo de íconos</b></div>
+            <div class="wx-opts">${WX_STYLES.map(([id, label, folder, css]) => `
+                <button class="wx-opt ${g('weather_icons', 'neo-flat') === id ? 'on' : ''}" data-wx="${id}">
+                    <img src="../assets/icons/weather/${folder}/partly-cloudy-day.svg" style="${css}" alt="" onerror="this.style.opacity=.2">${label}</button>`).join('')}</div>
+            <div class="row col" style="padding-bottom:4px;margin-top:8px"><div class="lbl"><b>Tamaño del clima actual</b></div>${seg('weather_size', SIZES, g('weather_size', 'standard'))}</div>
+            <div class="row col" style="border-top:1px solid var(--line)"><div class="lbl"><b>Tamaño del pronóstico</b></div>${seg('weather_forecast_size', SIZES, g('weather_forecast_size', 'standard'))}</div>
+        </div>
+
+        <div class="section-title">Modo noche</div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Atenuar de noche</b><small>Baja el brillo durante este horario</small></div>${sw('night_mode_enabled', g('night_mode_enabled', '0') === '1')}</div>
+            <div class="row" data-when="night_mode_enabled"><div class="lbl"><b>Desde / hasta</b></div>
+                <div class="time-pair"><input type="time" data-s="night_start" value="${esc(g('night_start', '23:00'))}"><input type="time" data-s="night_end" value="${esc(g('night_end', '07:00'))}"></div></div>
+        </div>
+
+        <div class="section-title">Horario de encendido</div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Encender por horario</b><small>Fuera de horario se muestra la imagen de reposo</small></div>${sw('visor_schedule_enabled', g('visor_schedule_enabled', '0') === '1')}</div>
+            <div class="row" data-when="visor_schedule_enabled"><div class="lbl"><b>Enciende / apaga</b></div>
+                <div class="time-pair"><input type="time" data-s="visor_on" value="${esc(g('visor_on', '07:00'))}"><input type="time" data-s="visor_off" value="${esc(g('visor_off', '23:00'))}"></div></div>
+            <div class="row col" data-when="visor_schedule_enabled">
+                <div class="lbl"><b>Imagen de reposo</b><small>Se muestra mientras la pantalla está “apagada”</small></div>
+                <img class="rest-thumb" id="rest-img" ${restImg ? `src="${esc(U(restImg))}"` : 'hidden'} alt="">
+                <div style="display:flex;gap:8px"><button class="btn btn-sm" id="rest-up">${ic('upload')} Elegir imagen</button><button class="btn btn-sm btn-danger" id="rest-clear" ${restImg ? '' : 'hidden'}>Quitar</button></div>
+            </div>
+        </div>`;
+
+    // Secciones plegables: abierta solo la primera, así no hay que scrollear tanto
+    $$('.section-title').forEach((t, i) => {
+        const body = t.nextElementSibling;
+        t.classList.add('acc');
+        const set = open => { t.classList.toggle('open', open); body.hidden = !open; };
+        set(i === 0);
+        t.onclick = () => {
+            const open = !t.classList.contains('open');
+            buzz(6); set(open);
+            if (open) {
+                const cur = $('.style-opt.on', body);
+                if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
+                setTimeout(() => t.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+            }
+        };
+    });
+
+    // Valores iniciales de controles
+    $('[data-s=slide_animation]').value = g('slide_animation', 'fade');
+    $$('[data-s]').forEach(el => el.onchange = () => {
+        let v = el.value;
+        if (el.type === 'number') v = Math.max(+el.min || 1, Math.min(+el.max || 999, +v || +el.min || 1));
+        setSetting(el.dataset.s, v);
+    });
+    const whens = () => $$('[data-when]').forEach(r => { r.hidden = !$(`[data-sw=${r.dataset.when}]`).checked; });
+    $$('[data-sw]').forEach(el => el.onchange = () => { setSetting(el.dataset.sw, el.checked ? '1' : '0'); whens(); });
+    whens();
+
+    // Segmentados
+    $$('[data-seg]').forEach(box => $$('button', box).forEach(b => b.onclick = () => {
+        $$('button', box).forEach(x => x.classList.toggle('on', x === b));
+        const key = box.dataset.seg;
+        setSetting(key, b.dataset.v);
+        if (key === 'clock_size') { clock.size = b.dataset.v; redrawClock(); }
+        if (key === 'date_format') { clock.date = b.dataset.v; redrawClock(); }
+    }));
+
+    function redrawClock() { $('#clk-prev').innerHTML = clockHtml(clock.style, clock.size, true); }
+    $$('.style-opt').forEach(b => b.onclick = () => {
+        $$('.style-opt').forEach(x => x.classList.toggle('on', x === b));
+        clock.style = b.dataset.style; redrawClock(); setSetting('clock_style', clock.style);
+    });
+
+    // Clima
+    $$('[data-wx]').forEach(b => b.onclick = () => { $$('[data-wx]').forEach(x => x.classList.toggle('on', x === b)); setSetting('weather_icons', b.dataset.wx); });
+    const find = async () => {
+        const name = $('#wx-city').value.trim();
+        if (!name) return;
+        const btn = $('#wx-find'); btn.disabled = true;
+        try {
+            const q = name.split(',')[0].trim();
+            const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=es&format=json`);
+            const j = await r.json();
+            if (!j.results || !j.results.length) { $('#wx-found').textContent = 'No encontré esa ciudad.'; return; }
+            const l = j.results[0];
+            const label = `${l.name}, ${l.admin1 || l.country || ''}`.replace(/, $/, '');
+            $('#wx-city').value = label;
+            $('#wx-found').textContent = `Ubicación: ${label}`;
+            await api('update_settings', { body: { weather_city: label, weather_lat: String(l.latitude), weather_lon: String(l.longitude) } });
+            toast('Ciudad guardada', 'ok');
+        } catch (e) { $('#wx-found').textContent = 'No se pudo buscar (¿hay internet?).'; }
+        finally { btn.disabled = false; }
+    };
+    $('#wx-find').onclick = find;
+    $('#wx-city').onkeydown = e => { if (e.key === 'Enter') find(); };
 
     // Imagen de reposo
-    const restImg = settings.visor_off_image || '';
-    const prev = document.getElementById('rest-image-preview');
-    const clr = document.getElementById('rest-image-clear-btn');
-    if (restImg) {
-        document.getElementById('rest-image-thumb').src = '../' + restImg.replace(/\?.*$/, '') + '?t=' + Date.now();
-        prev.style.display = 'block';
-        clr.style.display = 'inline-flex';
-    } else {
-        prev.style.display = 'none';
-        clr.style.display = 'none';
-    }
-    const ri = document.getElementById('rest-image-input');
-    ri.onchange = () => uploadRestImage(ri);
+    $('#rest-up').onclick = () => uploadSheet({}, () => viewPantalla(navToken), { title: 'Imagen de reposo', sub: 'Elegí una foto para mostrar mientras el portarretrato está apagado por horario.', accept: 'image/*', fields: { rest_image: '1' } });
+    $('#rest-clear').onclick = async () => { try { await api('clear_rest_image'); toast('Quitada', 'ok'); viewPantalla(navToken); } catch (e) { fail(e); } };
 
-    document.getElementById('settings-modal').style.display = 'flex';
-}
-
-async function saveSlideOnly() {
-    const settings = {
-        slide_duration: document.getElementById('slide-duration').value,
-        slide_animation: document.getElementById('slide-animation').value,
-        night_mode_enabled: document.getElementById('night-mode-val').value,
-        night_start: document.getElementById('night-start-input').value,
-        night_end: document.getElementById('night-end-input').value,
-        visor_schedule_enabled: document.getElementById('visor-schedule-val').value,
-        visor_on: document.getElementById('visor-on-input').value,
-        visor_off: document.getElementById('visor-off-input').value
-    };
-    const response = await fetch('../backend/api.php?action=update_weather_settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings)
-    });
-    const result = await response.json();
-    if (result.success) { showNotification("Slide guardado", "fa-save"); closeModal('settings-modal'); }
-}
-
-async function uploadRestImage(input) {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    const wrap = document.getElementById('rest-image-progress');
-    const bar = document.getElementById('rest-image-bar');
-    wrap.style.display = 'block';
-
-    const formData = new FormData();
-    formData.append('rest_image', '1');
-    formData.append('media[]', file);
-
-    try {
-        const resp = await new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '../backend/upload.php', true);
-            xhr.upload.onprogress = (e) => { if (e.lengthComputable && bar) bar.value = (e.loaded / e.total) * 100; };
-            xhr.onload = () => { try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(err); } };
-            xhr.onerror = reject;
-            xhr.send(formData);
-        });
-        wrap.style.display = 'none';
-        bar.value = 0;
-        input.value = '';
-        if (resp && resp.success) {
-            document.getElementById('rest-image-thumb').src = '../' + resp.ruta + '?t=' + Date.now();
-            document.getElementById('rest-image-preview').style.display = 'block';
-            document.getElementById('rest-image-clear-btn').style.display = 'inline-flex';
-            showNotification('Imagen de reposo cargada', 'fa-image');
-        } else {
-            showNotification((resp && resp.error) || 'No se pudo cargar la imagen', 'fa-triangle-exclamation');
-        }
-    } catch (e) {
-        wrap.style.display = 'none';
-        showNotification('Error al subir la imagen', 'fa-bug');
-    }
-}
-
-async function clearRestImage() {
-    showConfirm('¿Quitar imagen de reposo?', 'El Visor quedará en negro fuera del horario de encendido.', async () => {
-        await fetch('../backend/api.php?action=clear_rest_image');
-        document.getElementById('rest-image-preview').style.display = 'none';
-        document.getElementById('rest-image-clear-btn').style.display = 'none';
-        showNotification('Imagen de reposo quitada', 'fa-trash-can');
-    }, 'warning');
-}
-
-async function createAlbum() {
-    const name = document.getElementById('new-album-name').value;
-    if (!name) return;
-    const response = await fetch('../backend/api.php?action=create_album', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: name })
-    });
-    const result = await response.json();
-    document.getElementById('new-album-name').value = '';
-    await loadAlbums();
-    if (result.id) selectAlbum({ id: result.id, nombre: name, activo: 0 });
-    showNotification("Álbum creado", "fa-folder-plus"); closeModal('album-modal');
-}
-
-async function setActiveAlbum(id, name) {
-    if(!id) return;
-    await fetch(`../backend/api.php?action=set_active_album&id=${id}`);
-    loadAlbums(); 
-    document.getElementById('current-active-indicator').style.display = 'block';
-    showNotification(`Lanzado: ${name}`, "fa-rocket");
-}
-
-let draggedCard = null;
-
-async function loadMedia() {
-    try {
-        const response = await fetch(`../backend/api.php?action=get_album_media&id=${currentAlbumId}`);
-        const media = await response.json();
-        const grid = document.getElementById('media-list'); if(!grid) return; grid.innerHTML = '';
-        if (media.length === 0) {
-            grid.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:60px; color:#94a3b8;"><i class="fas fa-mountain-sun" style="font-size:3rem; margin-bottom:20px; display:block; opacity:0.3;"></i><p>Este álbum está esperando tus fotos</p></div>`;
-            return;
-        }
-        media.forEach(item => {
-            const card = document.createElement('div');
-            card.className = 'card';
-            card.dataset.id = item.id;
-            card.setAttribute('draggable', 'true');
-            const thumbSrc = item.thumb ? `../${item.thumb}` : (item.tipo === 'video' ? null : `../${item.ruta}`);
-            const content = thumbSrc
-                ? `<img src="${thumbSrc}" loading="lazy" decoding="async">${item.tipo === 'video' ? '<i class="fas fa-circle-play" style="position:absolute;inset:0;margin:auto;width:fit-content;height:fit-content;font-size:2.2rem;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none;"></i>' : ''}`
-                : `<div style="width:100%;height:100%;background:#1e1b2e;display:flex;align-items:center;justify-content:center;"><i class="fas fa-circle-play" style="font-size:2.6rem;color:#a78bfa;"></i></div>`;
-            const durBadge = parseInt(item.duracion_img) > 0 ? `<div class="card-duration-badge">${item.duracion_img}s</div>` : '';
-            const rotateBtn = item.tipo !== 'video' ? `<button onclick="event.stopPropagation(); rotateMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#0ea5e9; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-rotate-right"></i></button>` : '';
-            card.innerHTML = `${content}${durBadge}<div class="overlay"><div style="display:flex;gap:8px;"><button onclick="event.stopPropagation(); openMediaDurationModal(${item.id}, ${parseInt(item.duracion_img) || 0})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#8b5cf6; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-clock"></i></button>${rotateBtn}<button onclick="event.stopPropagation(); deleteMedia(${item.id})" style="background:rgba(255,255,255,0.92); border:none; padding:10px; border-radius:12px; color:#ef4444; cursor:pointer; backdrop-filter:blur(8px);"><i class="fas fa-trash-can"></i></button></div></div><div class="drag-handle"><i class="fas fa-grip-dots-vertical"></i></div>`;
-            card.onclick = () => openLightbox(item.ruta, item.tipo, item.tipo === 'video' && !item.thumb ? item.id : 0);
-
-            card.addEventListener('dragstart', (e) => {
-                draggedCard = card;
-                e.dataTransfer.effectAllowed = 'move';
-                setTimeout(() => card.classList.add('dragging'), 0);
-            });
-
-            card.addEventListener('dragend', () => {
-                card.classList.remove('dragging');
-                grid.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over'));
-                saveMediaOrder();
-                draggedCard = null;
-            });
-
-            card.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                if (!draggedCard || card === draggedCard) return;
-                grid.querySelectorAll('.card').forEach(c => c.classList.remove('drag-over'));
-                card.classList.add('drag-over');
-                e.dataTransfer.dropEffect = 'move';
-            });
-
-            card.addEventListener('drop', (e) => {
-                e.preventDefault();
-                if (!draggedCard || card === draggedCard) return;
-                const cards = [...grid.querySelectorAll('.card')];
-                const dragIdx = cards.indexOf(draggedCard);
-                const dropIdx = cards.indexOf(card);
-                if (dragIdx < dropIdx) grid.insertBefore(draggedCard, card.nextSibling);
-                else grid.insertBefore(draggedCard, card);
-                card.classList.remove('drag-over');
-            });
-
-            grid.appendChild(card);
-        });
-    } catch (e) { console.error("Error media", e); }
-}
-
-async function saveMediaOrder() {
-    const cards = document.querySelectorAll('#media-list .card');
-    const order = [...cards].map((c, i) => ({ id: parseInt(c.dataset.id), orden: i }));
-    await fetch('../backend/api.php?action=reorder_media', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order)
-    });
-}
-
-async function uploadFiles() {
-    const input = document.getElementById('file-input');
-    if (!input || input.files.length === 0) return;
-
-    const files = Array.from(input.files);
-    const total = files.length;
-    const wrapper = document.getElementById('progress-wrapper');
-    const progressBar = document.getElementById('upload-progress');
-    const progressText = document.getElementById('upload-progress-text');
-
-    if (wrapper) wrapper.style.display = 'block';
-    let uploaded = 0;
-    const failedNames = [];
-
-    for (let i = 0; i < files.length; i++) {
-        if (progressText) progressText.innerText = `SUBIENDO ${i + 1} / ${total}...`;
-
-        const formData = new FormData();
-        formData.append('album_id', currentAlbumId);
-        const isVid = files[i].type.startsWith('video/');
-        formData.append('media[]', isVid ? files[i] : await shrinkImage(files[i]), files[i].name);
-        if (isVid) {
-            const url = URL.createObjectURL(files[i]);
-            const poster = await videoPoster(url);
-            URL.revokeObjectURL(url);
-            if (poster) formData.append('poster', poster, 'p.jpg');
-        }
-
-        try {
-            const ok = await new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '../backend/upload.php', true);
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable && progressBar) {
-                        progressBar.value = ((i + e.loaded / e.total) / total) * 100;
-                    }
-                };
-                xhr.onload = () => {
-                    if (xhr.status !== 200) { reject(new Error(xhr.status)); return; }
-                    try {
-                        const resp = JSON.parse(xhr.responseText);
-                        resolve(resp.success && resp.uploaded > 0);
-                    } catch (e) { reject(e); }
-                };
-                xhr.onerror = reject;
-                xhr.send(formData);
-            });
-            if (ok) uploaded++; else failedNames.push(files[i].name);
-        } catch (e) {
-            console.error(`Error subiendo ${files[i].name}:`, e);
-            failedNames.push(files[i].name);
-        }
-
-        if (progressBar) progressBar.value = ((i + 1) / total) * 100;
-    }
-
-    if (wrapper) wrapper.style.display = 'none';
-    if (progressBar) progressBar.value = 0;
-    input.value = '';
-    loadMedia();
-
-    const msg = uploaded === total
-        ? `${total} archivo${total !== 1 ? 's' : ''} añadido${total !== 1 ? 's' : ''}`
-        : `${uploaded} de ${total} subidos — fallaron: ${failedNames.join(', ')} (formato no soportado, ej. HEIC de iPhone)`;
-    showNotification(msg, uploaded === total ? "fa-cloud-arrow-up" : "fa-triangle-exclamation");
-    closeModal('upload-modal');
-}
-
-function openMediaDurationModal(id, currentDuration) {
-    document.getElementById('media-duration-id').value = id;
-    document.getElementById('media-duration-input').value = currentDuration > 0 ? currentDuration : '';
-    document.getElementById('media-duration-modal').style.display = 'flex';
-}
-
-async function saveMediaDuration() {
-    const id = parseInt(document.getElementById('media-duration-id').value);
-    const duracion = parseInt(document.getElementById('media-duration-input').value) || 0;
-    const response = await fetch('../backend/api.php?action=update_media_duration', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, duracion })
-    });
-    const result = await response.json();
-    if (result.success) {
-        showNotification(duracion > 0 ? `Duración: ${duracion}s` : "Duración del álbum/global", "fa-clock");
-        closeModal('media-duration-modal');
-        loadMedia();
-    }
-}
-
-async function openAlbumSettingsModal() {
-    if (!currentAlbumId) return;
-    const response = await fetch(`../backend/api.php?action=get_album_settings&id=${currentAlbumId}`);
-    const settings = await response.json();
-    document.getElementById('album-duration-input').value = parseInt(settings.duracion_default) > 0 ? settings.duracion_default : '';
-    document.getElementById('album-animation-select').value = settings.animacion_tipo || '';
-    document.getElementById('album-settings-modal').style.display = 'flex';
-}
-
-async function saveAlbumSettings() {
-    if (!currentAlbumId) return;
-    const duracion = parseInt(document.getElementById('album-duration-input').value) || 0;
-    const animacion = document.getElementById('album-animation-select').value;
-    const response = await fetch('../backend/api.php?action=update_album_settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: currentAlbumId, duracion, animacion })
-    });
-    const result = await response.json();
-    if (result.success) {
-        showNotification("Ajustes del álbum guardados", "fa-sliders");
-        closeModal('album-settings-modal');
-    }
-}
-
-async function rotateMedia(id) {
-    const res = await fetch('../backend/api.php?action=rotate_media', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, degrees: 90 })
-    });
-    const data = await res.json();
-    if (data && data.error) { showNotification(data.error, "fa-triangle-exclamation"); return; }
-    loadMedia();
-    showNotification("Imagen rotada", "fa-rotate-right");
-}
-
-async function deleteMedia(id) {
-    showConfirm('¿Eliminar imagen?', 'Esta imagen se borrará permanentemente.', async () => {
-        await fetch(`../backend/api.php?action=delete_media&id=${id}`); loadMedia(); showNotification("Imagen eliminada", "fa-trash-can");
-    });
-}
-
-async function emptyAlbum() {
-    if (!currentAlbumId) return;
-    showConfirm('¿Vaciar álbum?', 'Se eliminarán todos los archivos.', async () => {
-        await fetch(`../backend/api.php?action=empty_album&id=${currentAlbumId}`); loadMedia(); showNotification("Álbum vacío", "fa-broom");
-    }, 'warning');
-}
-
-function togglePreviewModal() {
-    const modal = document.getElementById('preview-modal');
-    if (modal.style.display === 'none') {
-        if (!confirm('La vista previa descarga todas las fotos y videos del álbum activo desde el servidor (consume datos). ¿Continuar?')) return;
-        document.getElementById('viewer-iframe').src = '../';
-        modal.style.display = 'flex';
-    } else {
-        closePreview();
-    }
-}
-
-function closePreview() {
-    document.getElementById('viewer-iframe').src = '';
-    document.getElementById('preview-modal').style.display = 'none';
-}
-
-async function deleteAlbum() {
-    if (!currentAlbumId) return;
-    showConfirm('¿Eliminar álbum?', 'Se borrará el álbum y todo su contenido.', async () => {
-        await fetch(`../backend/api.php?action=delete_album&id=${currentAlbumId}`); currentAlbumId = null; loadAlbums();
-        document.getElementById('media-list').innerHTML = ''; document.getElementById('album-quick-actions').style.display = 'none';
-        const uploadBtn = document.getElementById('main-upload-btn'); if(uploadBtn) uploadBtn.style.display = 'none';
-        showNotification("Álbum eliminado", "fa-folder-minus");
-    });
+    $('[data-preview]').onclick = () => openSheet(`<h3>Así se ve ahora</h3><p class="sub">Vista previa del Visor.</p><iframe class="preview-frame" src="../"></iframe><div class="btns"><button class="btn" data-no>Cerrar</button></div>`, (sh, c) => { $('[data-no]', sh).onclick = c; });
 }
 
 // ─── PASE RÁPIDO ─────────────────────────────────────────────────────────────
-
-async function openQuickShowModal() {
-    document.getElementById('quick-show-modal').style.display = 'flex';
-    await loadQsDuration();
-    await loadQsMedia();
-
-    // Conectar input de archivo
-    const fileInput = document.getElementById('qs-file-input');
-    fileInput.onchange = () => uploadQuickShowFiles(fileInput);
-}
-
-async function loadQsDuration() {
-    try {
-        const res = await fetch('../backend/api.php?action=get_weather_settings');
-        const settings = await res.json();
-        document.getElementById('qs-duration-input').value = settings.quick_show_duration || '8';
-    } catch(e) {}
-}
-
-async function saveQsDuration() {
-    const dur = Math.max(1, parseInt(document.getElementById('qs-duration-input').value) || 8);
-    await fetch('../backend/api.php?action=update_weather_settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quick_show_duration: String(dur) })
-    });
-    showNotification(`Duración: ${dur}s por foto`, 'fa-bolt');
-}
-
-async function loadQsMedia() {
-    try {
-        const res = await fetch('../backend/api.php?action=get_quick_show_media');
-        const data = await res.json();
-        const grid = document.getElementById('qs-grid');
-        const empty = document.getElementById('qs-empty');
-        const footer = document.getElementById('qs-footer');
-        grid.innerHTML = '';
-
-        if (!data || data.error || data.length === 0) {
-            empty.style.display = 'block';
-            footer.style.display = 'none';
-            return;
-        }
-        empty.style.display = 'none';
-        footer.style.display = 'block';
-
-        const DAYS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
-
-        data.forEach(item => {
-            const diaVal   = parseInt(item.dia_semana) || 1;
-            const horaVal  = (item.horario || '08:00:00').substring(0, 5);
-            const dayOpts  = DAYS.map((d, i) =>
-                `<option value="${i}"${i === diaVal ? ' selected' : ''}>${d}</option>`
-            ).join('');
-
-            const wrap = document.createElement('div');
-            wrap.className = 'qs-card-wrap';
-            wrap.innerHTML = `
-                <div class="qs-thumb">
-                    <img src="../${item.thumb || item.ruta}" loading="lazy" decoding="async">
-                    <div class="overlay">
-                        <button onclick="event.stopPropagation(); deleteQsMedia(${item.id})" style="background:rgba(255,255,255,0.92);border:none;padding:10px;border-radius:12px;color:#ef4444;cursor:pointer;backdrop-filter:blur(8px);">
-                            <i class="fas fa-trash-can"></i>
-                        </button>
-                    </div>
+const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+async function viewPase(token) {
+    const [items, s] = await Promise.all([api('get_quick_show_media'), api('get_settings')]);
+    if (!alive(token)) return;
+    main.innerHTML = `
+        <div class="page-head"><h1>Pase Rápido</h1><button class="btn btn-primary" data-add>${ic('plus')} Agregar</button></div>
+        <p class="page-sub">Imágenes sorpresa que aparecen al tocar la pantalla o apretar el botón 1. Cada una tiene un día y una hora: antes de esa hora se muestran las del día; después, las del día siguiente. Al terminar vuelve al álbum.</p>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Segundos por imagen</b></div>${stepper('id="qs-dur"', s.quick_show_duration || '8', 1, 120)}</div>
+        </div>
+        ${items.length ? `<div class="card">${items.map(q => `
+            <div class="qs-item" data-id="${q.id}">
+                <img src="${esc(U(q.thumb || q.ruta))}" alt="">
+                <div class="ctl">
+                    <select data-dow>${DAYS.map((d, n) => `<option value="${n}" ${+q.dia_semana === n ? 'selected' : ''}>${d}</option>`).join('')}</select>
+                    <input type="time" data-time value="${esc((q.horario || '08:00').slice(0, 5))}">
                 </div>
-                <div class="qs-card-footer">
-                    <select class="qs-day-sel">${dayOpts}</select>
-                    <input type="time" class="qs-hora-inp" value="${horaVal}">
-                </div>`;
+                <button class="icon-btn" style="color:var(--danger)" data-del>${ic('trash')}</button>
+            </div>`).join('')}</div>
+            <button class="btn btn-danger btn-block" data-clear>Quitar todas</button>`
+        : `<div class="empty">${ic('zap')}<b>No hay imágenes en el Pase Rápido</b>Agregá algunas con el botón de arriba.</div>`}`;
 
-            wrap.querySelector('.qs-thumb').onclick = () => openLightbox(item.ruta, 'imagen');
-
-            const sel = wrap.querySelector('.qs-day-sel');
-            const inp = wrap.querySelector('.qs-hora-inp');
-            const save = () => updateQsMedia(item.id, parseInt(sel.value), inp.value);
-            sel.addEventListener('change', save);
-            inp.addEventListener('change', save);
-
-            grid.appendChild(wrap);
-        });
-    } catch(e) { console.error('Error cargando pase rápido', e); }
+    $('#qs-dur').onchange = e => { const v = Math.max(1, Math.min(120, +e.target.value || 8)); e.target.value = v; setSetting('quick_show_duration', v); };
+    $('[data-add]').onclick = () => uploadSheet({}, () => viewPase(navToken), { title: 'Agregar al Pase Rápido', sub: 'Solo imágenes.', accept: 'image/*', fields: { quick_show: '1' } });
+    $$('.qs-item').forEach(el => {
+        const id = +el.dataset.id;
+        const save = async () => {
+            try { await api('update_quick_show_media', { body: { id, dia_semana: +$('[data-dow]', el).value, horario: $('[data-time]', el).value || '08:00' } }); toast('Guardado', 'ok'); } catch (e) { fail(e); }
+        };
+        $('[data-dow]', el).onchange = save; $('[data-time]', el).onchange = save;
+        $('[data-del]', el).onclick = async () => { try { await api('delete_quick_show_media', { query: { id } }); viewPase(navToken); } catch (e) { fail(e); } };
+    });
+    const clr = $('[data-clear]');
+    if (clr) clr.onclick = async () => {
+        if (!await confirmSheet({ title: '¿Quitar todas?', text: 'Se borran todas las imágenes del Pase Rápido.', ok: 'Quitar' })) return;
+        try { await api('clear_quick_show'); viewPase(navToken); } catch (e) { fail(e); }
+    };
 }
 
-async function updateQsMedia(id, dia_semana, horario) {
-    const formData = new FormData();
-    formData.append('id', id);
-    formData.append('dia_semana', dia_semana);
-    formData.append('horario', horario);
-    try {
-        const res = await fetch('../backend/api.php?action=update_quick_show_media', {
-            method: 'POST', body: formData
-        });
-        const data = await res.json();
-        if (data.success) showNotification('Programación guardada', 'fa-calendar-check');
-        else showNotification('Error al guardar', 'fa-triangle-exclamation');
-    } catch(e) { showNotification('Error de conexión', 'fa-triangle-exclamation'); }
-}
+// ─── MENSAJES ────────────────────────────────────────────────────────────────
+async function viewMensajes(token) {
+    const [list, s] = await Promise.all([api('get_recordatorios'), api('get_settings')]);
+    if (!alive(token)) return;
+    main.innerHTML = `
+        <div class="page-head"><h1>Mensajes</h1></div>
+        <p class="page-sub">Notas para la familia: aparecen en el portarretrato con un aviso. Tocá el ícono de nota en pantalla (o el botón 3) para leerlas.</p>
+        <div class="card pad">
+            <input type="text" id="m-autor" placeholder="Tu nombre (opcional)" maxlength="60" style="margin-bottom:10px" value="${esc(localStorage.getItem('pr_autor') || '')}">
+            <textarea id="m-text" maxlength="280" placeholder="Ej: Comprar leche, cumple de la abuela el sábado…"></textarea>
+            <div class="counter"><span id="m-count">0</span> / 280</div>
+            <button class="btn btn-primary btn-block" id="m-send" style="margin-top:10px">${ic('message')} Enviar al portarretrato</button>
+        </div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Sección para tu hija</b><small>Abrí <b>${esc(location.origin)}/hija/</b> en su celular y agregala a la pantalla de inicio: solo ve y escribe mensajes</small></div><a class="btn" href="/hija/" target="_blank">Abrir</a></div>
+            <div class="row"><div class="lbl"><b>Segundos en pantalla</b><small>Cuánto tiempo se muestran al abrirlas</small></div>${stepper('id="m-dur"', s.recordatorios_duration || '20', 5, 120)}</div>
+        </div>
+        ${list.length ? `<div class="section-title">Enviados</div><div class="card">${list.map(r => `
+            <div class="msg ${+r.visto ? '' : 'new'}"><div class="txt"><p>${esc(r.mensaje)}</p><small>${+r.de_hija ? '💌 ' : ''}${esc(r.autor || 'Anónimo')} ·${esc(String(r.fecha_creacion).slice(0, 16))}</small></div>
+            <button class="icon-btn" style="color:var(--danger)" data-del="${r.id}">${ic('trash')}</button></div>`).join('')}</div>`
+        : `<div class="empty">${ic('message')}<b>No hay mensajes</b></div>`}`;
 
-async function uploadQuickShowFiles(input) {
-    const files = Array.from(input.files);
-    if (!files.length) return;
-
-    const wrapper = document.getElementById('qs-progress-wrapper');
-    const progressBar = document.getElementById('qs-upload-progress');
-    const progressText = document.getElementById('qs-progress-text');
-    wrapper.style.display = 'block';
-
-    let uploaded = 0;
-    const failedNames = [];
-    for (let i = 0; i < files.length; i++) {
-        if (progressText) progressText.innerText = `SUBIENDO ${i + 1} / ${files.length}...`;
-        const formData = new FormData();
-        formData.append('quick_show', '1');
-        formData.append('media[]', await shrinkImage(files[i]), files[i].name);
+    const ta = $('#m-text');
+    ta.oninput = () => { $('#m-count').textContent = ta.value.length; };
+    $('#m-send').onclick = async () => {
+        const mensaje = ta.value.trim();
+        if (!mensaje) { ta.focus(); return; }
+        const autor = $('#m-autor').value.trim();
         try {
-            const ok = await new Promise((resolve, reject) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', '../backend/upload.php', true);
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable && progressBar) {
-                        progressBar.value = ((i + e.loaded / e.total) / files.length) * 100;
-                    }
-                };
-                xhr.onload = () => {
-                    if (xhr.status !== 200) { reject(new Error(xhr.status)); return; }
-                    try {
-                        const resp = JSON.parse(xhr.responseText);
-                        resolve(resp.success && resp.uploaded > 0);
-                    } catch (e) { reject(e); }
-                };
-                xhr.onerror = reject;
-                xhr.send(formData);
-            });
-            if (ok) uploaded++; else failedNames.push(files[i].name);
-        } catch(e) {
-            console.error(`Error subiendo ${files[i].name}:`, e);
-            failedNames.push(files[i].name);
-        }
-        if (progressBar) progressBar.value = ((i + 1) / files.length) * 100;
-    }
-
-    wrapper.style.display = 'none';
-    if (progressBar) progressBar.value = 0;
-    input.value = '';
-
-    const msg = uploaded === files.length
-        ? `${uploaded} imagen${uploaded !== 1 ? 'es' : ''} añadida${uploaded !== 1 ? 's' : ''} al pase`
-        : `${uploaded} de ${files.length} subidas — fallaron: ${failedNames.join(', ')} (formato no soportado, ej. HEIC de iPhone)`;
-    showNotification(msg, uploaded === files.length ? 'fa-bolt' : 'fa-triangle-exclamation');
-    await loadQsMedia();
+            await api('add_recordatorio', { body: { mensaje, autor } });
+            try { localStorage.setItem('pr_autor', autor); } catch (e) {}
+            toast('Enviado', 'ok'); viewMensajes(navToken);
+        } catch (e) { fail(e); }
+    };
+    $('#m-dur').onchange = e => { const v = Math.max(5, Math.min(120, +e.target.value || 20)); e.target.value = v; setSetting('recordatorios_duration', v); };
+    $$('[data-del]').forEach(b => b.onclick = async () => { try { await api('delete_recordatorio', { query: { id: b.dataset.del } }); viewMensajes(navToken); } catch (e) { fail(e); } });
 }
 
-async function deleteQsMedia(id) {
-    showConfirm('¿Eliminar imagen?', 'Se borrará del pase rápido permanentemente.', async () => {
-        await fetch(`../backend/api.php?action=delete_quick_show_media&id=${id}`);
-        showNotification('Imagen eliminada del pase', 'fa-trash-can');
-        await loadQsMedia();
-    });
+// ─── SISTEMA ─────────────────────────────────────────────────────────────────
+function qrSvg(text) {
+    const q = qrcode(0, 'M');
+    q.addData(text); q.make();
+    return q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
 }
 
-async function clearQuickShow() {
-    showConfirm('¿Vaciar pase rápido?', 'Se eliminarán todas las imágenes del pase.', async () => {
-        await fetch('../backend/api.php?action=clear_quick_show');
-        showNotification('Pase rápido vaciado', 'fa-broom');
-        await loadQsMedia();
-    }, 'warning');
-}
+async function viewSistema(token) {
+    const st = await api('get_status');
+    if (!alive(token)) return;
+    const usedPct = st.disco_total ? Math.round((1 - st.disco_libre / st.disco_total) * 100) : 0;
+    const url = `http://${st.host}.local/gestion/`;
+    const ipUrl = st.ips && st.ips[0] ? `http://${st.ips[0]}/gestion/` : '';
+    const sc = st.syncthing;
 
-// ─── RECORDATORIOS FAMILIARES ────────────────────────────────────────────────
+    main.innerHTML = `
+        <div class="page-head"><h1>Sistema</h1></div>
 
-async function openRecordatoriosModal() {
-    document.getElementById('recordatorio-autor-input').value = '';
-    document.getElementById('recordatorio-mensaje-input').value = '';
-    document.getElementById('recordatorios-modal').style.display = 'flex';
-    await loadRecordatoriosDuration();
-    await loadRecordatorios();
-}
-
-async function loadRecordatoriosDuration() {
-    try {
-        const res = await fetch('../backend/api.php?action=get_weather_settings');
-        const settings = await res.json();
-        document.getElementById('recordatorios-duration-input').value = settings.recordatorios_duration || '20';
-    } catch (e) {}
-}
-
-async function saveRecordatoriosDuration() {
-    const dur = Math.max(5, parseInt(document.getElementById('recordatorios-duration-input').value) || 20);
-    await fetch('../backend/api.php?action=update_weather_settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordatorios_duration: String(dur) })
-    });
-    showNotification(`Duración del panel: ${dur}s`, 'fa-clock');
-}
-
-async function loadRecordatorios() {
-    try {
-        const res = await fetch('../backend/api.php?action=get_recordatorios');
-        const data = await res.json();
-        const list = document.getElementById('recordatorios-list');
-        const empty = document.getElementById('recordatorios-empty');
-        list.innerHTML = '';
-
-        if (!data || data.error || data.length === 0) {
-            empty.style.display = 'block';
-            return;
-        }
-        empty.style.display = 'none';
-
-        data.forEach(item => {
-            const row = document.createElement('div');
-            row.className = 'recordatorio-item';
-            const fecha = new Date(item.fecha_creacion.replace(' ', 'T')).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-            const autor = item.autor ? `${item.autor} · ` : '';
-            row.innerHTML = `
-                <div class="rec-body">
-                    <div class="rec-msg"></div>
-                    <div class="rec-meta">${autor}${fecha}</div>
-                </div>
-                <button class="rec-del" onclick="deleteRecordatorio(${item.id})"><i class="fas fa-trash-can"></i></button>`;
-            row.querySelector('.rec-msg').textContent = item.mensaje;
-            list.appendChild(row);
-        });
-    } catch (e) { console.error('Error cargando recordatorios', e); }
-}
-
-async function addRecordatorio() {
-    const mensaje = document.getElementById('recordatorio-mensaje-input').value.trim();
-    if (!mensaje) return;
-    const autor = document.getElementById('recordatorio-autor-input').value.trim();
-    const res = await fetch('../backend/api.php?action=add_recordatorio', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mensaje, autor })
-    });
-    const data = await res.json();
-    if (data && data.error) { showNotification(data.error, 'fa-triangle-exclamation'); return; }
-    document.getElementById('recordatorio-mensaje-input').value = '';
-    showNotification('Mensaje dejado en el portarretrato', 'fa-note-sticky');
-    await loadRecordatorios();
-}
-
-async function deleteRecordatorio(id) {
-    showConfirm('¿Eliminar mensaje?', 'Se borrará permanentemente.', async () => {
-        await fetch(`../backend/api.php?action=delete_recordatorio&id=${id}`);
-        showNotification('Mensaje eliminado', 'fa-trash-can');
-        await loadRecordatorios();
-    });
-}
-
-// ─── QR ──────────────────────────────────────────────────────────────────────
-
-let _qrUrl = '';
-
-function openQRModal() {
-    _qrUrl = window.location.href.split('?')[0];
-    document.getElementById('qr-url').textContent = _qrUrl;
-    document.getElementById('qr-modal').style.display = 'flex';
-
-    const canvas = document.getElementById('qr-canvas');
-    QRCode.toCanvas(canvas, _qrUrl, {
-        width: 220,
-        margin: 2,
-        color: { dark: '#0f172a', light: '#ffffff' }
-    });
-}
-
-function copyQRUrl() {
-    navigator.clipboard.writeText(_qrUrl).then(() => {
-        showNotification('Enlace copiado', 'fa-copy');
-    }).catch(() => {
-        showNotification('No se pudo copiar', 'fa-triangle-exclamation');
-    });
-}
-
-// ─── DIAGNÓSTICO / MÉTRICAS DE DISPOSITIVOS ──────────────────────────────────
-
-function openMetricsModal() {
-    document.getElementById('metrics-modal').style.display = 'flex';
-    loadDeviceMetrics();
-}
-
-function mFmtBytes(n) {
-    n = Number(n) || 0;
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return (n / 1024).toFixed(0) + ' KB';
-    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
-    return (n / 1073741824).toFixed(2) + ' GB';
-}
-
-function mParseDate(sql) {
-    if (!sql) return NaN;
-    // "2026-09-02 14:03:11" → timestamp local
-    const t = new Date(String(sql).replace(' ', 'T')).getTime();
-    return isNaN(t) ? NaN : t;
-}
-
-function mFmtAgo(sql) {
-    const t = mParseDate(sql);
-    if (isNaN(t)) return sql || 'nunca';
-    let s = Math.floor((Date.now() - t) / 1000);
-    if (s < 0) s = 0;
-    if (s < 60) return 'hace ' + s + ' s';
-    if (s < 3600) return 'hace ' + Math.floor(s / 60) + ' min';
-    if (s < 86400) return 'hace ' + Math.floor(s / 3600) + ' h';
-    return 'hace ' + Math.floor(s / 86400) + ' días';
-}
-
-function mEsc(s) {
-    return String(s).replace(/[&<>"']/g, c => (
-        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-    ));
-}
-
-async function loadDeviceMetrics() {
-    const list = document.getElementById('metrics-list');
-    const empty = document.getElementById('metrics-empty');
-    const summary = document.getElementById('metrics-summary');
-    list.innerHTML = '<p style="text-align:center; color:#94a3b8; font-size:0.8rem; padding:20px;">Cargando...</p>';
-    summary.style.display = 'none';
-    empty.style.display = 'none';
-
-    let devices;
-    try {
-        const res = await fetch('../backend/api.php?action=get_devices');
-        devices = await res.json();
-    } catch (e) {
-        list.innerHTML = '<p style="text-align:center; color:#ef4444; font-size:0.8rem; padding:20px;">Error al cargar</p>';
-        return;
-    }
-
-    if (!Array.isArray(devices) || devices.length === 0) {
-        list.innerHTML = '';
-        empty.style.display = 'block';
-        return;
-    }
-
-    list.innerHTML = devices.map(renderDeviceCard).join('');
-}
-
-function renderDeviceCard(d) {
-    const lastMs = Date.now() - mParseDate(d.ultimo_reporte);
-    const vivo = !isNaN(lastMs) && lastMs < 15 * 60 * 1000;
-    const online = parseInt(d.online) === 1;
-    const totalN = parseInt(d.media_total) || 0;
-    const nombre = (d.nombre && d.nombre.trim())
-        ? d.nombre.trim()
-        : 'Dispositivo ' + String(d.device_id || '').slice(0, 6);
-
-    // "online" = la PC tiene internet (clima, acceso remoto a Gestión). El Visor
-    // sigue funcionando sin internet porque la media es local.
-    const netBadge = !vivo
-        ? '<span class="dev-badge bad">sin señal</span>'
-        : (online ? '<span class="dev-badge ok">en línea</span>'
-                  : '<span class="dev-badge warn">sin internet</span>');
-    const ver = d.version_hash ? String(d.version_hash).slice(0, 8) : '—';
-
-    return `
-    <div class="device-card">
-        <div class="dev-head">
-            <strong>${mEsc(nombre)}</strong>
-            <span class="dev-ago">${mFmtAgo(d.ultimo_reporte)}</span>
+        <div class="section-title">Contenido</div>
+        <div class="card pad">
+            <div class="stats">
+                <div class="stat"><b>${st.albumes}</b><span>Álbumes</span></div>
+                <div class="stat"><b>${st.fotos}</b><span>Fotos</span></div>
+                <div class="stat"><b>${st.videos}</b><span>Videos</span></div>
+            </div>
+            <div class="row" style="padding-bottom:6px"><div class="lbl"><b>Espacio en disco</b><small>${fmtBytes(st.disco_libre)} libres de ${fmtBytes(st.disco_total)}</small></div><b>${usedPct}%</b></div>
+            <div class="bar ${usedPct > 85 ? 'warn' : ''}"><i style="width:${usedPct}%"></i></div>
+            ${st.pendientes ? `<div class="banner" style="margin:16px 0 0"><span class="spin"></span>Procesando ${plural(st.pendientes, 'archivo nuevo', 'archivos nuevos')}…</div>` : ''}
         </div>
-        <div class="dev-badges">${netBadge}</div>
-        <div class="dev-grid">
-            <div class="dev-stat"><span>Archivos en el álbum</span><b>${totalN || '?'}</b></div>
-            <div class="dev-stat"><span>Versión de contenido</span><b>${mEsc(ver)}</b></div>
+
+        <div class="section-title">Sincronizar desde el celular</div>
+        <div class="card pad">
+            ${sc ? `
+            <p class="hint" style="margin-bottom:12px">Con <b>Syncthing</b> una carpeta del celular queda copiada en el portarretrato, en casa o afuera. Cada subcarpeta es un álbum. Borrar una foto en el celular no la borra del portarretrato.</p>
+            <ol class="steps">
+                <li><span>Instalá <b>Syncthing</b> en el celular (Android: “Syncthing-Fork”).</span></li>
+                <li><span>En el celular: <b>Dispositivos → +</b> y escaneá este código (o pegá el ID).</span></li>
+                <li><span>Aparecerá acá abajo un pedido: tocá <b>Aceptar</b>. Después, en el celular aceptá la carpeta <b>Fotos</b> y elegí qué carpeta del teléfono sincronizar. En <b>Tipo de carpeta</b> elegí <b>Solo enviar</b>: así el celular sube las fotos nuevas pero no baja las del portarretrato.</span></li>
+            </ol>
+            <div class="qr-box" style="margin-top:16px">${qrSvg(sc.id)}</div>
+            <div class="mono" id="sc-id">${esc(sc.id)}</div>
+            <button class="btn btn-block" id="sc-copy" style="margin-top:10px">${ic('copy')} Copiar ID</button>
+            ${sc.pendientes.map(d => `<div class="banner" style="margin:18px 0 0;justify-content:space-between"><span>${esc(d.nombre || 'Un celular')} quiere sincronizar</span><button class="btn btn-sm btn-primary" data-accept="${esc(d.id)}" data-name="${esc(d.nombre || 'Celular')}">Aceptar</button></div>`).join('')}
+            <div class="section-title" style="margin:20px 0 4px">Celulares emparejados</div>
+            ${sc.dispositivos.length ? sc.dispositivos.map(d => `<div class="dev"><span class="dot ${d.conectado ? 'on' : ''}"></span>${esc(d.nombre)}<span class="hint" style="margin-left:auto">${d.conectado ? 'Conectado' : 'Sin conexión'}</span><button class="icon-btn" style="width:34px;height:34px;color:var(--danger)" data-unpair="${esc(d.id)}" aria-label="Quitar">${ic('x')}</button></div>`).join('') : '<p class="hint">Ninguno todavía.</p>'}`
+            : `<p class="hint">Syncthing no responde. Si acaba de encenderse, esperá un minuto y volvé a entrar.</p>`}
         </div>
-    </div>`;
+
+        <div class="section-title">Entrar desde el celular</div>
+        <div class="card pad">
+            <p class="hint" style="margin-bottom:12px">Conectado al mismo WiFi, abrí esta dirección (o escaneá el código).</p>
+            <div class="qr-box">${qrSvg(url)}</div>
+            <div class="mono" style="text-align:center">${esc(url)}</div>
+            ${ipUrl ? `<p class="hint" style="text-align:center;margin-top:8px">Alternativa: ${esc(ipUrl)}</p>` : ''}
+        </div>
+
+        <div class="section-title">Instalar como app</div>
+        <div class="card pad">
+            ${location.protocol === 'https:' ? `
+            <p class="hint">Estás en una conexión segura. En el menú <b>⋮</b> del navegador tocá <b>Instalar app</b> y queda con su ícono, sin barra del navegador.</p>`
+            : `
+            <p class="hint" style="margin-bottom:12px">Para que el celular la instale como una app (con ícono y a pantalla completa) hace falta una conexión segura. Se configura una sola vez:</p>
+            <ol class="steps">
+                <li><span>Descargá el certificado con el botón de abajo.</span></li>
+                <li><span>Instalalo: <b>Ajustes → Seguridad → Cifrado y credenciales → Instalar un certificado → Certificado de CA</b> y elegí el archivo descargado.</span></li>
+                <li><span>Abrí la versión segura (botón de abajo) y en el menú <b>⋮</b> tocá <b>Instalar app</b>.</span></li>
+            </ol>
+            <a class="btn btn-block" style="margin-top:14px" href="ca.crt" download="aura-portarretrato.crt">${ic('upload')} Descargar certificado</a>
+            <a class="btn btn-block btn-primary" style="margin-top:10px" href="https://${esc(st.host)}.local/gestion/">${ic('link')} Abrir versión segura</a>`}
+        </div>
+
+        <div class="section-title">Mantenimiento</div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Buscar archivos nuevos</b><small>Normalmente es automático, cada minuto</small></div><button class="btn btn-sm" id="sys-import">${ic('refresh')} Ahora</button></div>
+            <div class="row"><div class="lbl"><b>Abrir el Visor</b><small>Lo que muestra el portarretrato</small></div><a class="btn btn-sm" href="../" target="_blank">${ic('monitor')} Abrir</a></div>
+            <div class="row"><div class="lbl"><b>Cerrar sesión</b></div><a class="btn btn-sm" href="logout.php">${ic('logout')} Salir</a></div>
+        </div>`;
+
+    const copy = $('#sc-copy');
+    if (copy) copy.onclick = async () => {
+        try { await navigator.clipboard.writeText(sc.id); }
+        catch (e) { const r = document.createRange(); r.selectNodeContents($('#sc-id')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand('copy'); }
+        toast('ID copiado', 'ok');
+    };
+    $$('[data-accept]').forEach(b => b.onclick = async () => {
+        try { await api('syncthing_accept', { body: { id: b.dataset.accept, nombre: b.dataset.name } }); toast('Celular aceptado', 'ok'); viewSistema(token); } catch (e) { fail(e); }
+    });
+    $$('[data-unpair]').forEach(b => b.onclick = async () => {
+        if (!await confirmSheet({ title: '¿Quitar este celular?', text: 'Deja de sincronizar. Las fotos ya copiadas se quedan.', ok: 'Quitar' })) return;
+        try { await api('syncthing_remove', { body: { id: b.dataset.unpair } }); viewSistema(token); } catch (e) { fail(e); }
+    });
+    $('#sys-import').onclick = async () => { try { await api('run_import'); toast('Buscando…', 'ok'); setTimeout(() => alive(token) && viewSistema(token), 3000); } catch (e) { fail(e); } };
 }
+
+// Para poder instalarla como app (solo con conexión segura); no guarda nada en caché.
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
+route();
+})();

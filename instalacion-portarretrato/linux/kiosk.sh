@@ -1,7 +1,7 @@
 #!/bin/bash
 # Sesion grafica del portarretrato (la lanza ~/.xinitrc). Chromium a pantalla completa,
 # reabierto automaticamente si se cierra o se cae.
-URL="http://127.0.0.1:8080/"
+URL="http://localhost/"
 CHROMIUM_FLAGS=""
 ROTATE="left"   # normal | left | right | inverted  (pantalla en vertical; se cambia en /etc/default/portaretrato)
 [ -f /etc/default/portaretrato ] && . /etc/default/portaretrato

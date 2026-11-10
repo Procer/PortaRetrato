@@ -41,117 +41,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aura — Acceso</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#5b5bf0">
+    <meta name="color-scheme" content="light dark">
+    <title>Aura</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', sans-serif;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #f8f7ff;
-            background-image: radial-gradient(circle at 20% 20%, rgba(139,92,246,0.08) 0%, transparent 50%),
-                              radial-gradient(circle at 80% 80%, rgba(45,212,191,0.08) 0%, transparent 50%);
-        }
-        .login-card {
-            background: white;
-            border-radius: 28px;
-            padding: 40px 36px;
-            width: 100%;
-            max-width: 360px;
-            box-shadow: 0 20px 60px rgba(139,92,246,0.1), 0 4px 16px rgba(0,0,0,0.04);
-        }
-        .login-logo {
-            font-size: 2rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #8b5cf6, #2dd4bf);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 6px;
-        }
-        .login-sub {
-            font-size: 0.8rem;
-            color: #94a3b8;
-            font-weight: 600;
-            margin-bottom: 32px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .input-wrap {
-            position: relative;
-            margin-bottom: 16px;
-        }
-        .input-wrap i {
-            position: absolute;
-            left: 16px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94a3b8;
-            font-size: 0.9rem;
-        }
-        .input-wrap input {
-            width: 100%;
-            padding: 14px 14px 14px 44px;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 14px;
-            font-family: inherit;
-            font-size: 0.95rem;
-            font-weight: 600;
-            background: #f8fafc;
-            color: #0f172a;
-            transition: border-color 0.2s;
-            outline: none;
-        }
-        .input-wrap input:focus { border-color: #8b5cf6; background: white; }
-        .error-msg {
-            background: #fef2f2;
-            border: 1px solid #fecaca;
-            border-radius: 10px;
-            padding: 10px 14px;
-            font-size: 0.8rem;
-            color: #ef4444;
-            font-weight: 600;
-            margin-bottom: 16px;
-        }
-        .btn-login {
-            width: 100%;
-            padding: 14px;
-            border: none;
-            border-radius: 14px;
-            background: linear-gradient(135deg, #8b5cf6, #2dd4bf);
-            color: white;
-            font-family: inherit;
-            font-size: 0.9rem;
-            font-weight: 800;
-            cursor: pointer;
-            letter-spacing: 0.5px;
-            transition: opacity 0.2s, transform 0.2s;
-        }
-        .btn-login:hover { opacity: 0.92; transform: scale(1.01); }
-        .btn-login:active { transform: scale(0.99); }
+        :root { --bg:#f4f4f7; --surface:#fff; --surface-2:#eeeef3; --text:#131318; --muted:#6c6c78; --accent:#5b5bf0; --danger:#e5484d; }
+        @media (prefers-color-scheme: dark) { :root { --bg:#0a0a0e; --surface:#15151b; --surface-2:#1d1d25; --text:#f3f3f6; --muted:#9a9aa8; --accent:#7c7cff; --danger:#ff6369; } }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+               background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+               background-image: radial-gradient(circle at 15% 10%, rgba(91,91,240,.16), transparent 45%), radial-gradient(circle at 90% 90%, rgba(139,92,246,.14), transparent 45%); }
+        .card { width:100%; max-width:380px; background:var(--surface); border-radius:30px; padding:40px 30px 30px; box-shadow:0 1px 2px rgba(0,0,0,.05), 0 24px 70px rgba(30,30,80,.16); border:1px solid rgba(128,128,150,.15); }
+        .logo { width:58px; height:58px; border-radius:18px; background:linear-gradient(135deg,#5b5bf0,#8b5cf6); display:flex; align-items:center; justify-content:center; margin-bottom:22px; box-shadow:0 10px 26px rgba(91,91,240,.4); }
+        .logo i { width:28px; height:21px; border:3.5px solid #fff; border-radius:5px; display:block; }
+        h1 { font-size:30px; font-weight:800; letter-spacing:-.03em; }
+        p { color:var(--muted); margin:4px 0 26px; font-size:15px; }
+        input { width:100%; min-height:52px; padding:0 18px; border-radius:16px; border:1.5px solid transparent; background:var(--surface-2); font:inherit; font-size:16px; color:inherit; outline:none; transition:border-color .2s, background .2s; }
+        input:focus { border-color:var(--accent); background:var(--surface); }
+        button { margin-top:14px; width:100%; min-height:52px; border:none; border-radius:999px; background:linear-gradient(135deg,#5b5bf0,#8b5cf6); color:#fff; font:inherit; font-weight:700; font-size:16px; cursor:pointer; box-shadow:0 8px 22px rgba(91,91,240,.38); transition:transform .15s, filter .2s; }
+        button:hover { filter:brightness(1.07); } button:active { transform:scale(.98); }
+        .pw { position:relative; }
+        .pw input { padding-right:84px; }
+        .pw .eye { position:absolute; right:6px; top:6px; width:auto; min-height:40px; margin:0; padding:0 16px; background:transparent; box-shadow:none; color:var(--accent); font-size:14px; }
+        .pw .eye:hover { filter:none; background:rgba(128,128,150,.12); }
+        .err { background:rgba(229,72,77,.12); color:var(--danger); border-radius:14px; padding:12px 16px; font-weight:600; font-size:14px; margin-bottom:14px; }
     </style>
 </head>
 <body>
-    <div class="login-card">
-        <div class="login-logo">Aura.</div>
-        <div class="login-sub">Gestión Visual</div>
-
-        <?php if ($error): ?>
-            <div class="error-msg"><i class="fas fa-circle-exclamation"></i> <?= htmlspecialchars($error) ?></div>
-        <?php endif; ?>
-
-        <form method="POST" autocomplete="off">
-            <div class="input-wrap">
-                <i class="fas fa-lock"></i>
-                <input type="password" name="password" placeholder="Contraseña" autofocus>
-            </div>
-            <button type="submit" class="btn-login">ENTRAR</button>
-        </form>
-    </div>
+    <form class="card" method="POST" autocomplete="off">
+        <div class="logo"><i></i></div>
+        <h1>Aura</h1>
+        <p>Ingresá la contraseña para administrar el portarretrato.</p>
+        <?php if ($error): ?><div class="err"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+        <div class="pw">
+            <input type="password" name="password" id="pw" placeholder="Contraseña" autofocus
+                   autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go">
+            <button type="button" class="eye" id="eye" aria-label="Mostrar contraseña">Ver</button>
+        </div>
+        <button type="submit">Entrar</button>
+        <script>
+            document.getElementById('eye').onclick = function () {
+                var i = document.getElementById('pw'), show = i.type === 'password';
+                i.type = show ? 'text' : 'password';
+                this.textContent = show ? 'Ocultar' : 'Ver';
+            };
+        </script>
+    </form>
 </body>
 </html>

@@ -15,12 +15,8 @@ Thumbs.db
 # Claude Code y temporales locales
 .claude/
 clean_temp/
-# Config con credenciales — cada entorno tiene el suyo
-backend/config.php
-
-# Modo espejo (PC del portarretrato)
-mirror/
-backend/mirror.config.php
+# Config con credenciales — cada instalación tiene la suya
+backend/config.local.php
 PortaRetrato.zip
 php/
 
@@ -28,3 +24,7 @@ php/
 sync/
 sync-papelera/
 agente/importar.log*
+
+# Temporales de pruebas locales
+cj
+foto*.jpeg

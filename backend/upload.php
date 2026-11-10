@@ -1,11 +1,8 @@
 <?php
 require_once 'bootstrap.php';
-if (mirrorConfig()) jsonFail(403, 'No disponible en el modo espejo');
 require_once 'config.php';
+require_once 'sync_lib.php';
 requireAuth();
-
-// Tamaño máximo permitido para videos (en bytes).
-const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 /**
  * Comprime y redimensiona una imagen a máx 1920px.
@@ -100,76 +97,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         die(json_encode(['success' => true, 'ruta' => $ruta]));
     }
 
-    $is_quick_show = (($_POST['quick_show'] ?? '0') === '1');
-
-    if (!$is_quick_show) {
-        $album_id = $_POST['album_id'] ?? 0;
-        if (!$album_id) die(json_encode(['error' => 'ID de álbum no proporcionado']));
+    // ─── Pase Rápido: imágenes sueltas con día y horario ──────────────────────
+    if (($_POST['quick_show'] ?? '0') === '1') {
+        $dir = '../uploads/quick_show/';
+        if (!file_exists($dir)) mkdir($dir, 0777, true);
+        $uploaded = 0;
+        $failed = [];
+        foreach ($_FILES['media']['name'] as $key => $name) {
+            if ($_FILES['media']['error'][$key] !== UPLOAD_ERR_OK) { $failed[] = $name; continue; }
+            $base = uniqid();
+            $temp = $dir . $base . '.tmp';
+            move_uploaded_file($_FILES['media']['tmp_name'][$key], $temp);
+            $finalExt = compressImage($temp, $dir . $base);
+            @unlink($temp);
+            if ($finalExt === false) { $failed[] = $name; continue; }
+            $ruta = 'uploads/quick_show/' . $base . '.' . $finalExt;
+            makeThumb('../' . $ruta, '../' . thumbRelPath($ruta));
+            $pdo->prepare("INSERT INTO quick_show_media (ruta, tipo) VALUES (?, 'imagen')")->execute([$ruta]);
+            $uploaded++;
+        }
+        echo json_encode(['success' => true, 'uploaded' => $uploaded, 'failed' => $failed]);
+        exit;
     }
 
-    $upload_dir = $is_quick_show ? '../uploads/quick_show/' : '../uploads/';
-    if (!file_exists($upload_dir)) mkdir($upload_dir, 0777, true);
+    // ─── Álbum: el original va a la carpeta sincronizada y el importador hace el resto ─
+    $album_id = (int)($_POST['album_id'] ?? 0);
+    if (!$album_id) die(json_encode(['error' => 'ID de álbum no proporcionado']));
+    if (!syncFolderReady()) die(json_encode(['error' => 'La carpeta de sincronización no está lista']));
+
+    $stmt = $pdo->prepare("SELECT nombre, carpeta FROM albums WHERE id = ?");
+    $stmt->execute([$album_id]);
+    $album = $stmt->fetch();
+    if (!$album) die(json_encode(['error' => 'Álbum no encontrado']));
+    $carpeta = $album['carpeta'];
+    if ($carpeta === null) {   // álbum anterior a las carpetas: se le asigna una
+        $carpeta = safeFolderName($album['nombre']);
+        $pdo->prepare("UPDATE albums SET carpeta = ? WHERE id = ?")->execute([$carpeta, $album_id]);
+    }
+    $destDir = syncDir() . ($carpeta === '' ? '' : '/' . $carpeta);
+    if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
 
     $uploaded = 0;
     $failed   = [];
-
-    // Las fotos nuevas se agregan al final de la secuencia del álbum en vez de
-    // quedar en el "orden" por defecto (0): si empataran con fotos existentes,
-    // el desempate por id las pondría antes de todo el contenido ya cargado.
-    $next_orden = 0;
-    if (!$is_quick_show) {
-        $stmt = $pdo->prepare("SELECT COALESCE(MAX(orden), -1) + 1 FROM media WHERE album_id = ?");
-        $stmt->execute([$album_id]);
-        $next_orden = (int)$stmt->fetchColumn();
-    }
-
     foreach ($_FILES['media']['name'] as $key => $name) {
-        if ($_FILES['media']['error'][$key] !== UPLOAD_ERR_OK) { $failed[] = $name; continue; }
-
-        $tmp_name = $_FILES['media']['tmp_name'][$key];
-        $ext      = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        $isVideo  = in_array($ext, ['mp4', 'webm', 'ogg']);
-
-        // Rechazar videos que superen el límite
-        if ($isVideo && $_FILES['media']['size'][$key] > VIDEO_MAX_BYTES) {
-            $failed[] = $name;
-            continue;
-        }
-
-        $base_name = uniqid();
-
-        if ($isVideo) {
-            $new_name    = $base_name . '.' . $ext;
-            $destination = $upload_dir . $new_name;
-            $ok = move_uploaded_file($tmp_name, $destination);
-        } else {
-            $temp        = $upload_dir . $base_name . '.tmp';
-            move_uploaded_file($tmp_name, $temp);
-            $finalExt    = compressImage($temp, $upload_dir . $base_name);
-            @unlink($temp);
-            $ok          = ($finalExt !== false);
-            $new_name    = $ok ? $base_name . '.' . $finalExt : null;
-        }
-
-        if (!$ok || !$new_name) { $failed[] = $name; continue; }
-
-        // Miniatura: de la propia imagen, o la portada que generó el navegador para un video.
-        $thumbSrc = $isVideo ? ($_FILES['poster']['tmp_name'] ?? '') : $upload_dir . $new_name;
-        $rutaNueva = ($is_quick_show ? 'uploads/quick_show/' : 'uploads/') . $new_name;
-        if ($thumbSrc !== '' && is_file($thumbSrc)) makeThumb($thumbSrc, '../' . thumbRelPath($rutaNueva));
-
-        if ($is_quick_show) {
-            $ruta = 'uploads/quick_show/' . $new_name;
-            $stmt = $pdo->prepare("INSERT INTO quick_show_media (ruta, tipo) VALUES (?, 'imagen')");
-            $stmt->execute([$ruta]);
-        } else {
-            $type = $isVideo ? 'video' : 'imagen';
-            $stmt = $pdo->prepare("INSERT INTO media (album_id, ruta, tipo, orden) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$album_id, 'uploads/' . $new_name, $type, $next_orden]);
-            $next_orden++;
-        }
+        if ($_FILES['media']['error'][$key] !== UPLOAD_ERR_OK || !syncMediaType($name)) { $failed[] = $name; continue; }
+        $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        $stem = safeFolderName(pathinfo($name, PATHINFO_FILENAME));
+        $dest = "$destDir/$stem.$ext";
+        for ($n = 2; file_exists($dest); $n++) $dest = "$destDir/$stem $n.$ext";
+        if (!move_uploaded_file($_FILES['media']['tmp_name'][$key], $dest)) { $failed[] = $name; continue; }
         $uploaded++;
     }
-
+    if ($uploaded) spawnImport();
     echo json_encode(['success' => true, 'uploaded' => $uploaded, 'failed' => $failed]);
 }

@@ -66,181 +66,91 @@ function rotateImageFile(string $fullPath, int $degrees): bool {
     return (bool)$result;
 }
 
-// Reenvía una escritura del Visor al servidor central (modo espejo). Mejor esfuerzo.
-function mirrorForward(array $cfg, string $action, string $body): void {
-    if (!function_exists('curl_init')) return;
-    $ch = curl_init(rtrim($cfg['remote'], '/') . '/backend/api.php?action=' . urlencode($action));
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 6, CURLOPT_CONNECTTIMEOUT => 4,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'X-Device-Token: ' . $cfg['token']],
-    ]);
-    curl_exec($ch);
+// Syncthing: API REST local (127.0.0.1:8384). La clave se lee de su config.xml.
+function syncthingCall(string $method, string $path, $body = null) {
+    static $key = false;
+    if ($key === false) {
+        $key = null;
+        $home = function_exists('posix_getpwuid') ? (posix_getpwuid(posix_geteuid())['dir'] ?? '') : '';
+        foreach (["$home/.local/state/syncthing/config.xml", "$home/.config/syncthing/config.xml"] as $f) {
+            if (is_file($f) && preg_match('#<apikey>([^<]+)</apikey>#', file_get_contents($f), $k)) { $key = $k[1]; break; }
+        }
+    }
+    if (!$key) return null;
+    $ch = curl_init('http://127.0.0.1:8384/rest/' . $path);
+    $opts = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3, CURLOPT_CUSTOMREQUEST => $method,
+             CURLOPT_HTTPHEADER => ['X-API-Key: ' . $key, 'Content-Type: application/json']];
+    if ($body !== null) $opts[CURLOPT_POSTFIELDS] = json_encode($body);
+    curl_setopt_array($ch, $opts);
+    $r = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+    if ($r === false || $code >= 400) return null;
+    return $r === '' ? true : (json_decode($r, true) ?? true);
 }
 
-// Modo espejo: todo se lee de mirror/manifest.json (lo escribe agente/sync.php).
-function handleMirror(array $cfg, string $action): void {
-    $file = MIRROR_DIR . '/manifest.json';
-    $m = is_file($file) ? json_decode(file_get_contents($file), true) : null;
-    if (!is_array($m)) {
-        $m = ['media' => [], 'settings' => new stdClass(), 'recordatorios' => [], 'quick_show' => [], 'version_hash' => ''];
+// ID de este equipo, celulares emparejados y pedidos de emparejamiento pendientes.
+function syncthingInfo(): ?array {
+    $status = syncthingCall('GET', 'system/status');
+    if (!is_array($status) || empty($status['myID'])) return null;
+    $conns = syncthingCall('GET', 'system/connections')['connections'] ?? [];
+    $devices = [];
+    foreach (syncthingCall('GET', 'config/devices') ?: [] as $d) {
+        if ($d['deviceID'] === $status['myID']) continue;
+        $devices[] = ['id' => $d['deviceID'], 'nombre' => $d['name'] ?: substr($d['deviceID'], 0, 7), 'conectado' => !empty($conns[$d['deviceID']]['connected'])];
     }
-    switch ($action) {
-        case 'get_sync_manifest':     sendCachedJson(json_encode($m)); break;
-        case 'get_quick_show_media':  sendCachedJson(json_encode($m['quick_show'])); break;
-        case 'get_recordatorios':     sendCachedJson(json_encode($m['recordatorios'])); break;
-        case 'get_weather_settings':  sendCachedJson(json_encode($m['settings'])); break;
-        case 'report_device_stats':
-        case 'mark_recordatorios_vistos':
-            mirrorForward($cfg, $action, file_get_contents('php://input') ?: '{}');
-            echo json_encode(['success' => true]);
-            break;
-        default:
-            jsonFail(403, 'No disponible en el modo espejo');
+    $pend = [];
+    $known = array_column($devices, 'id');
+    foreach (syncthingCall('GET', 'cluster/pending/devices') ?: [] as $id => $info) {
+        if (!in_array($id, $known, true)) $pend[] = ['id' => $id, 'nombre' => $info['name'] ?? ''];
     }
+    return ['id' => $status['myID'], 'dispositivos' => $devices, 'pendientes' => $pend];
 }
 
 try {
     require_once 'bootstrap.php';
-    $action = $_GET['action'] ?? '';
-
-    if ($mirror = mirrorConfig()) {
-        handleMirror($mirror, $action);
-        exit;
-    }
-
     require_once 'config.php';
     require_once 'sync_lib.php';
+    $action = $_GET['action'] ?? '';
 
-    // Acciones que además puede pedir el Visor / agente con token de dispositivo.
-    $deviceActions = ['get_sync_manifest', 'report_device_stats', 'mark_recordatorios_vistos',
-                      'get_quick_show_media', 'get_recordatorios', 'get_weather_settings'];
-    requireAuth(in_array($action, $deviceActions, true));
+    // Lo que lee el Visor (esta misma PC) es público dentro de la red; todo lo demás exige sesión de Gestión.
+    $publicActions = ['get_visor_data', 'get_quick_show_media', 'get_recordatorios', 'mark_recordatorios_vistos', 'hija_list', 'hija_send'];
+    if (!in_array($action, $publicActions, true)) requireAuth();
 
     switch ($action) {
-        case 'list_albums':
-            $stmt = $pdo->query("SELECT id, nombre, activo, duracion_default, animacion_tipo FROM albums ORDER BY fecha_creacion DESC");
-            echo json_encode($stmt->fetchAll());
-            break;
-
-        case 'get_active_media':
-            // Desempate por id: sin él, filas con el mismo "orden" (p.ej. fotos
-            // nunca reordenadas a mano, todas en 0) pueden volver en distinto
-            // orden entre consultas y el Visor termina repitiendo/saltando fotos.
-            $stmt = $pdo->query("SELECT m.*, a.duracion_default as album_duracion, a.animacion_tipo FROM media m JOIN albums a ON m.album_id = a.id WHERE a.activo = 1 ORDER BY m.orden ASC, m.id ASC");
-            $rows = $stmt->fetchAll();
-            foreach ($rows as &$row) { $row['ruta'] = bustCache($row['ruta']); }
-            unset($row);
-            sendCachedJson(json_encode($rows));
-            break;
-
-        case 'get_sync_manifest':
-            // Todo lo que el Visor necesita para funcionar 100% offline, en un
-            // solo JSON. El Visor lo compara contra lo que ya tiene cacheado
-            // (por version_hash) y solo descarga del hosting los archivos
-            // nuevos o modificados. Es la base del "modo sync": cada foto/video
-            // viaja una única vez.
+        // ─── VISOR ─────────────────────────────────────────────────────────
+        case 'get_visor_data':
+            // Todo lo que el Visor necesita en un solo JSON chico: media de los álbumes
+            // activos, settings, mensajes y Pase Rápido. version_hash permite saber si algo cambió.
             $stmt = $pdo->query("SELECT m.id, m.album_id, m.ruta, m.tipo, m.orden, m.duracion_img, a.duracion_default AS album_duracion, a.animacion_tipo FROM media m JOIN albums a ON m.album_id = a.id WHERE a.activo = 1 ORDER BY m.orden ASC, m.id ASC");
-            $media = [];
-            foreach ($stmt->fetchAll() as $row) {
-                $full = '../' . $row['ruta'];
-                $row['bytes'] = @filesize($full) ?: 0;
-                $row['mtime'] = @filemtime($full) ?: 0;
-                $row['ruta']  = bustCache($row['ruta']);
-                $media[] = $row;
-            }
+            $media = $stmt->fetchAll();
+            foreach ($media as &$row) { $row['ruta'] = bustCache($row['ruta']); }
+            unset($row);
 
             $settings = [];
             foreach ($pdo->query("SELECT clave, valor FROM settings")->fetchAll() as $row) {
                 $settings[$row['clave']] = $row['valor'];
             }
-            // La imagen de reposo también se sirve desde uploads/ → el Service
-            // Worker la cachea igual que cualquier foto.
             if (!empty($settings['visor_off_image'])) {
                 $settings['visor_off_image'] = bustCache($settings['visor_off_image']);
             }
 
-            $recordatorios = $pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC")->fetchAll();
-            $quick_show    = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
-            foreach ($quick_show as &$q) {
-                $full = '../' . $q['ruta'];
-                $q['bytes'] = @filesize($full) ?: 0;
-                $q['mtime'] = @filemtime($full) ?: 0;
-                $q['ruta']  = bustCache($q['ruta']);
-            }
+            $quick_show = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
+            foreach ($quick_show as &$q) { $q['ruta'] = bustCache($q['ruta']); }
             unset($q);
 
             $payload = [
                 'media'         => $media,
                 'settings'      => $settings,
-                'recordatorios' => $recordatorios,
+                'recordatorios' => $pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC")->fetchAll(),
                 'quick_show'    => $quick_show,
             ];
             $payload['version_hash'] = md5(json_encode($payload));
             sendCachedJson(json_encode($payload));
             break;
 
-        case 'get_album_settings':
-            $id = $_GET['id'] ?? 0;
-            $stmt = $pdo->prepare("SELECT duracion_default, animacion_tipo FROM albums WHERE id = ?");
-            $stmt->execute([$id]);
-            echo json_encode($stmt->fetch());
-            break;
-
-        case 'update_album_settings':
-            $data = json_decode(file_get_contents('php://input'), true);
-            $id = (int)($data['id'] ?? 0);
-            $duracion = (isset($data['duracion']) && (int)$data['duracion'] > 0) ? (int)$data['duracion'] : null;
-            $animacion = (isset($data['animacion']) && $data['animacion'] !== '') ? $data['animacion'] : null;
-            $stmt = $pdo->prepare("UPDATE albums SET duracion_default = ?, animacion_tipo = ? WHERE id = ?");
-            $stmt->execute([$duracion, $animacion, $id]);
-            echo json_encode(['success' => true]);
-            break;
-
-        case 'update_media_duration':
-            $data = json_decode(file_get_contents('php://input'), true);
-            $id = (int)($data['id'] ?? 0);
-            $duracion = (isset($data['duracion']) && (int)$data['duracion'] > 0) ? (int)$data['duracion'] : null;
-            $stmt = $pdo->prepare("UPDATE media SET duracion_img = ? WHERE id = ?");
-            $stmt->execute([$duracion, $id]);
-            echo json_encode(['success' => true]);
-            break;
-
-        case 'get_weather_settings':
-            $stmt = $pdo->query("SELECT clave, valor FROM settings");
-            $settings = [];
-            foreach ($stmt->fetchAll() as $row) {
-                $settings[$row['clave']] = $row['valor'];
-            }
-            sendCachedJson(json_encode($settings));
-            break;
-
-        case 'update_weather_settings':
-            $data = json_decode(file_get_contents('php://input'), true);
-            foreach ($data as $key => $value) {
-                // Usamos REPLACE INTO para MySQL para que inserte si no existe o actualice si ya existe
-                $stmt = $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES (?, ?)");
-                $stmt->execute([$key, $value]);
-            }
-            echo json_encode(['success' => true]);
-            break;
-
-        case 'clear_rest_image':
-            $cur = $pdo->query("SELECT valor FROM settings WHERE clave = 'visor_off_image'")->fetchColumn();
-            if ($cur) {
-                $p = '../' . preg_replace('/\?.*$/', '', $cur);
-                if (file_exists($p)) @unlink($p);
-            }
-            $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES ('visor_off_image', '')")->execute();
-            echo json_encode(['success' => true]);
-            break;
-
-        case 'get_album_media':
-            $id = $_GET['id'] ?? 0;
-            $stmt = $pdo->prepare("SELECT * FROM media WHERE album_id = ? ORDER BY orden ASC, id ASC");
-            $stmt->execute([$id]);
-            $rows = $stmt->fetchAll();
+        case 'get_quick_show_media':
+            $rows = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
             foreach ($rows as &$row) {
                 $row['thumb'] = thumbIfExists($row['ruta']);
                 $row['ruta']  = bustCache($row['ruta']);
@@ -249,7 +159,173 @@ try {
             sendCachedJson(json_encode($rows));
             break;
 
+        case 'get_recordatorios':
+            sendCachedJson(json_encode($pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC")->fetchAll()));
+            break;
+
+        case 'mark_recordatorios_vistos':
+            $pdo->query("UPDATE recordatorios SET visto = 1 WHERE visto = 0");
+            echo json_encode(['success' => true]);
+            break;
+
+        // ─── SECCIÓN DE LA HIJA (/hija/): solo leer y escribir mensajes ────
+        case 'hija_list':
+            header('Cache-Control: no-store');
+            echo json_encode($pdo->query("SELECT id, mensaje, autor, de_hija, fecha_creacion FROM recordatorios ORDER BY fecha_creacion DESC, id DESC LIMIT 40")->fetchAll());
+            break;
+
+        case 'hija_send':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $mensaje = mb_substr(trim($data['mensaje'] ?? ''), 0, 280);
+            if ($mensaje === '') { echo json_encode(['error' => 'Escribí algo primero']); break; }
+            // Freno simple: máx. 10 mensajes por minuto, por si el celular se traba reenviando.
+            if ((int)$pdo->query("SELECT COUNT(*) FROM recordatorios WHERE de_hija = 1 AND fecha_creacion > (NOW() - INTERVAL 1 MINUTE)")->fetchColumn() >= 10) {
+                echo json_encode(['error' => 'Esperá un momento']); break;
+            }
+            $pdo->prepare("INSERT INTO recordatorios (mensaje, autor, de_hija) VALUES (?, ?, 1)")->execute([$mensaje, defined('HIJA_NOMBRE') ? HIJA_NOMBRE : 'Hija']);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ─── ESTADO DEL EQUIPO ─────────────────────────────────────────────
+        case 'get_status':
+            $dir = is_dir(syncDir()) ? syncDir() : projectRoot();
+            $cnt = $pdo->query("SELECT SUM(tipo='imagen') AS fotos, SUM(tipo='video') AS videos FROM media")->fetch();
+            $ips = array_values(array_filter(preg_split('/\s+/', trim((string)@shell_exec('hostname -I 2>/dev/null')))));
+            echo json_encode([
+                'albumes'      => (int)$pdo->query("SELECT COUNT(*) FROM albums")->fetchColumn(),
+                'fotos'        => (int)($cnt['fotos'] ?? 0),
+                'videos'       => (int)($cnt['videos'] ?? 0),
+                'pendientes'   => pendingImportCount($pdo),
+                'disco_libre'  => (int)@disk_free_space($dir),
+                'disco_total'  => (int)@disk_total_space($dir),
+                'host'         => gethostname(),
+                'ips'          => $ips,
+                'syncthing'    => syncthingInfo(),
+            ]);
+            break;
+
+        case 'syncthing_accept':
+            // Acepta un celular que pidió emparejarse y le comparte la carpeta de fotos.
+            $data = json_decode(file_get_contents('php://input'), true);
+            $id = preg_replace('/[^A-Z0-9-]/', '', strtoupper($data['id'] ?? ''));
+            if ($id === '') { echo json_encode(['error' => 'ID inválido']); break; }
+            $nombre = trim($data['nombre'] ?? '') ?: 'Celular';
+            $ok = syncthingCall('PUT', 'config/devices/' . $id, ['deviceID' => $id, 'name' => $nombre, 'autoAcceptFolders' => false]);
+            $folder = syncthingCall('GET', 'config/folders/fotos');
+            if ($ok && is_array($folder)) {
+                $ids = array_column($folder['devices'], 'deviceID');
+                if (!in_array($id, $ids, true)) {
+                    $folder['devices'][] = ['deviceID' => $id];
+                    $ok = syncthingCall('PUT', 'config/folders/fotos', $folder);
+                }
+            }
+            echo json_encode($ok ? ['success' => true] : ['error' => 'No se pudo aceptar el dispositivo']);
+            break;
+
+        case 'syncthing_remove':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $id = preg_replace('/[^A-Z0-9-]/', '', strtoupper($data['id'] ?? ''));
+            $ok = $id !== '' && syncthingCall('DELETE', 'config/devices/' . $id);
+            echo json_encode($ok ? ['success' => true] : ['error' => 'No se pudo quitar el dispositivo']);
+            break;
+
+        case 'run_import':
+            spawnImport();
+            echo json_encode(['success' => true]);
+            break;
+
+        // ─── ÁLBUMES ───────────────────────────────────────────────────────
+        case 'list_albums':
+            $rows = $pdo->query(
+                "SELECT a.id, a.nombre, a.carpeta, a.activo, a.duracion_default, a.animacion_tipo,
+                        COUNT(m.id) AS total, COALESCE(SUM(m.tipo = 'video'), 0) AS videos,
+                        (SELECT m2.ruta FROM media m2 WHERE m2.album_id = a.id ORDER BY m2.orden ASC, m2.id ASC LIMIT 1) AS portada
+                 FROM albums a LEFT JOIN media m ON m.album_id = a.id
+                 GROUP BY a.id ORDER BY a.activo DESC, a.fecha_creacion DESC"
+            )->fetchAll();
+            foreach ($rows as &$row) {
+                $row['portada'] = $row['portada'] ? (thumbIfExists($row['portada']) ?: bustCache($row['portada'])) : null;
+            }
+            unset($row);
+            echo json_encode($rows);
+            break;
+
+        case 'get_album_media':
+            $stmt = $pdo->prepare("SELECT * FROM media WHERE album_id = ? ORDER BY orden ASC, id ASC");
+            $stmt->execute([(int)($_GET['id'] ?? 0)]);
+            $rows = $stmt->fetchAll();
+            foreach ($rows as &$row) {
+                $row['thumb'] = thumbIfExists($row['ruta']);
+                $row['ruta']  = bustCache($row['ruta']);
+            }
+            unset($row);
+            echo json_encode($rows);
+            break;
+
+        case 'create_album':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $nombre = trim($data['nombre'] ?? '') ?: 'Nuevo Album';
+            $base = $carpeta = safeFolderName($nombre);
+            $existe = $pdo->prepare("SELECT COUNT(*) FROM albums WHERE carpeta = ?");
+            for ($n = 2; ; $n++) {
+                $existe->execute([$carpeta]);
+                if (!$existe->fetchColumn() && !is_dir(syncDir() . '/' . $carpeta)) break;
+                $carpeta = "$base $n";
+            }
+            if (syncFolderReady()) @mkdir(syncDir() . '/' . $carpeta, 0755, true);
+            $pdo->prepare("INSERT INTO albums (nombre, carpeta) VALUES (?, ?)")->execute([$nombre, $carpeta]);
+            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            break;
+
+        case 'empty_album':
+        case 'delete_album':
+            // Borra también los originales de la carpeta sincronizada (Syncthing los quita del celular).
+            $id = (int)($_GET['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT id, ruta, origen FROM media WHERE album_id = ?");
+            $stmt->execute([$id]);
+            foreach ($stmt->fetchAll() as $row) removeMediaRow($pdo, $row, true);
+            if ($action === 'delete_album') {
+                $c = $pdo->prepare("SELECT carpeta FROM albums WHERE id = ?");
+                $c->execute([$id]);
+                $carpeta = $c->fetchColumn();
+                // La carpeta va a la papelera completa (incluye lo que no era foto/video).
+                if ($carpeta && syncFolderReady() && is_dir(syncDir() . '/' . $carpeta)) {
+                    $dest = trashDir() . '/' . date('Ymd-His') . '-album/' . $carpeta;
+                    @mkdir(dirname($dest), 0755, true);
+                    @rename(syncDir() . '/' . $carpeta, $dest);
+                }
+                $pdo->prepare("DELETE FROM albums WHERE id = ?")->execute([$id]);
+            }
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'set_active_album':
+            $id = (int)($_GET['id'] ?? 0);
+            $pdo->query("UPDATE albums SET activo = 0");
+            $pdo->prepare("UPDATE albums SET activo = 1 WHERE id = ?")->execute([$id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'update_album_settings':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $id = (int)($data['id'] ?? 0);
+            $duracion = (isset($data['duracion']) && (int)$data['duracion'] > 0) ? (int)$data['duracion'] : null;
+            $animacion = (isset($data['animacion']) && $data['animacion'] !== '') ? $data['animacion'] : null;
+            $pdo->prepare("UPDATE albums SET duracion_default = ?, animacion_tipo = ? WHERE id = ?")->execute([$duracion, $animacion, $id]);
+            echo json_encode(['success' => true]);
+            break;
+
+        // ─── FOTOS Y VIDEOS ────────────────────────────────────────────────
+        case 'update_media_duration':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $id = (int)($data['id'] ?? 0);
+            $duracion = (isset($data['duracion']) && (int)$data['duracion'] > 0) ? (int)$data['duracion'] : null;
+            $pdo->prepare("UPDATE media SET duracion_img = ? WHERE id = ?")->execute([$duracion, $id]);
+            echo json_encode(['success' => true]);
+            break;
+
         case 'rotate_media':
+            // Gira solo la copia que muestra el Visor; el original del celular queda intacto.
             $data = json_decode(file_get_contents('php://input'), true);
             $id = (int)($data['id'] ?? 0);
             $degrees = (int)($data['degrees'] ?? 90);
@@ -273,41 +349,7 @@ try {
             echo json_encode(['success' => true]);
             break;
 
-        case 'save_poster':
-            // Portada de un video, generada en el navegador (sin ffmpeg en el hosting).
-            $id = (int)($_POST['id'] ?? 0);
-            $qs = ($_POST['quick_show'] ?? '0') === '1';
-            $stmt = $pdo->prepare($qs ? "SELECT ruta FROM quick_show_media WHERE id = ?" : "SELECT ruta FROM media WHERE id = ? AND tipo = 'video'");
-            $stmt->execute([$id]);
-            $row = $stmt->fetch();
-            if (!$row || empty($_FILES['poster']['tmp_name']) || $_FILES['poster']['error'] !== UPLOAD_ERR_OK
-                || $_FILES['poster']['size'] > 2 * 1024 * 1024) {
-                echo json_encode(['error' => 'Portada inválida']);
-                break;
-            }
-            $ok = makeThumb($_FILES['poster']['tmp_name'], '../' . thumbRelPath($row['ruta']));
-            echo json_encode($ok ? ['success' => true] : ['error' => 'No se pudo procesar la portada']);
-            break;
-
-        case 'set_active_album':
-            $id = $_GET['id'] ?? 0;
-            $pdo->query("UPDATE albums SET activo = 0");
-            $stmt = $pdo->prepare("UPDATE albums SET activo = 1 WHERE id = ?");
-            $stmt->execute([$id]);
-            echo json_encode(['success' => true]);
-            break;
-
-        case 'reorder_media':
-            $data = json_decode(file_get_contents('php://input'), true);
-            $stmt = $pdo->prepare("UPDATE media SET orden = ? WHERE id = ?");
-            foreach ($data as $item) {
-                $stmt->execute([(int)$item['orden'], (int)$item['id']]);
-            }
-            echo json_encode(['success' => true]);
-            break;
-
         case 'delete_media':
-            // Borra también el original de la carpeta sincronizada (Syncthing lo quita del celular).
             $id = (int)($_GET['id'] ?? 0);
             $stmt = $pdo->prepare("SELECT id, ruta, origen FROM media WHERE id = ?");
             $stmt->execute([$id]);
@@ -315,52 +357,36 @@ try {
             echo json_encode(['success' => true]);
             break;
 
-        case 'create_album':
-            $data = json_decode(file_get_contents('php://input'), true);
-            $nombre = trim($data['nombre'] ?? '') ?: 'Nuevo Album';
-            $base = $carpeta = safeFolderName($nombre);
-            $existe = $pdo->prepare("SELECT COUNT(*) FROM albums WHERE carpeta = ?");
-            for ($n = 2; ; $n++) {
-                $existe->execute([$carpeta]);
-                if (!$existe->fetchColumn() && !is_dir(syncDir() . '/' . $carpeta)) break;
-                $carpeta = "$base $n";
+        // ─── AJUSTES (reloj, clima, slide, modo noche, horario) ────────────
+        case 'get_settings':
+            $settings = [];
+            foreach ($pdo->query("SELECT clave, valor FROM settings")->fetchAll() as $row) {
+                $settings[$row['clave']] = $row['valor'];
             }
-            if (syncFolderReady()) @mkdir(syncDir() . '/' . $carpeta, 0755, true);
-            $pdo->prepare("INSERT INTO albums (nombre, carpeta) VALUES (?, ?)")->execute([$nombre, $carpeta]);
-            echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
+            echo json_encode($settings);
             break;
 
-        case 'empty_album':
-        case 'delete_album':
-            $id = (int)($_GET['id'] ?? 0);
-            $stmt = $pdo->prepare("SELECT id, ruta, origen FROM media WHERE album_id = ?");
-            $stmt->execute([$id]);
-            foreach ($stmt->fetchAll() as $row) removeMediaRow($pdo, $row, true);
-            if ($action === 'delete_album') {
-                $c = $pdo->prepare("SELECT carpeta FROM albums WHERE id = ?");
-                $c->execute([$id]);
-                $carpeta = $c->fetchColumn();
-                // La carpeta va a la papelera completa (incluye lo que no era foto/video).
-                if ($carpeta && syncFolderReady() && is_dir(syncDir() . '/' . $carpeta)) {
-                    $dest = trashDir() . '/' . date('Ymd-His') . '-album/' . $carpeta;
-                    @mkdir(dirname($dest), 0755, true);
-                    @rename(syncDir() . '/' . $carpeta, $dest);
-                }
-                $pdo->prepare("DELETE FROM albums WHERE id = ?")->execute([$id]);
+        case 'update_settings':
+            $data = json_decode(file_get_contents('php://input'), true);
+            $stmt = $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES (?, ?)");
+            foreach ($data as $key => $value) {
+                if ($key === 'visor_off_image') continue;   // se cambia solo con la subida / clear_rest_image
+                $stmt->execute([$key, $value]);
             }
             echo json_encode(['success' => true]);
             break;
 
-        case 'get_quick_show_media':
-            $rows = $pdo->query("SELECT * FROM quick_show_media ORDER BY orden ASC, fecha_subida ASC")->fetchAll();
-            foreach ($rows as &$row) {
-                $row['thumb'] = thumbIfExists($row['ruta']);
-                $row['ruta']  = bustCache($row['ruta']);
+        case 'clear_rest_image':
+            $cur = $pdo->query("SELECT valor FROM settings WHERE clave = 'visor_off_image'")->fetchColumn();
+            if ($cur) {
+                $p = '../' . preg_replace('/\?.*$/', '', $cur);
+                if (file_exists($p)) @unlink($p);
             }
-            unset($row);
-            sendCachedJson(json_encode($rows));
+            $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES ('visor_off_image', '')")->execute();
+            echo json_encode(['success' => true]);
             break;
 
+        // ─── PASE RÁPIDO ───────────────────────────────────────────────────
         case 'delete_quick_show_media':
             $id = (int)($_GET['id'] ?? 0);
             $stmt = $pdo->prepare("SELECT ruta FROM quick_show_media WHERE id = ?");
@@ -370,15 +396,13 @@ try {
                 $full_path = '../' . $row['ruta'];
                 if (file_exists($full_path)) @unlink($full_path);
                 deleteThumb($row['ruta']);
-                $stmt = $pdo->prepare("DELETE FROM quick_show_media WHERE id = ?");
-                $stmt->execute([$id]);
+                $pdo->prepare("DELETE FROM quick_show_media WHERE id = ?")->execute([$id]);
             }
             echo json_encode(['success' => true]);
             break;
 
         case 'clear_quick_show':
-            $stmt = $pdo->query("SELECT ruta FROM quick_show_media");
-            foreach ($stmt->fetchAll() as $row) {
+            foreach ($pdo->query("SELECT ruta FROM quick_show_media")->fetchAll() as $row) {
                 $full_path = '../' . $row['ruta'];
                 if (file_exists($full_path)) @unlink($full_path);
                 deleteThumb($row['ruta']);
@@ -388,86 +412,30 @@ try {
             break;
 
         case 'update_quick_show_media':
-            $id         = (int)($_POST['id'] ?? 0);
-            $dia_semana = (int)($_POST['dia_semana'] ?? 1);
-            $horario    = $_POST['horario'] ?? '08:00';
+            $data       = json_decode(file_get_contents('php://input'), true) ?: [];
+            $id         = (int)($data['id'] ?? 0);
+            $dia_semana = (int)($data['dia_semana'] ?? 1);
+            $horario    = $data['horario'] ?? '08:00';
             if ($id <= 0) { echo json_encode(['error' => 'ID inválido']); break; }
             if ($dia_semana < 0 || $dia_semana > 6) { echo json_encode(['error' => 'Día inválido']); break; }
             if (!preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $horario)) { echo json_encode(['error' => 'Horario inválido']); break; }
-            $stmt = $pdo->prepare("UPDATE quick_show_media SET dia_semana = ?, horario = ? WHERE id = ?");
-            $stmt->execute([$dia_semana, $horario, $id]);
+            $pdo->prepare("UPDATE quick_show_media SET dia_semana = ?, horario = ? WHERE id = ?")->execute([$dia_semana, $horario, $id]);
             echo json_encode(['success' => true]);
             break;
 
-        // ─── RECORDATORIOS FAMILIARES ──────────────────────────────────────
-        case 'get_recordatorios':
-            $stmt = $pdo->query("SELECT * FROM recordatorios ORDER BY fecha_creacion DESC");
-            sendCachedJson(json_encode($stmt->fetchAll()));
-            break;
-
+        // ─── MENSAJES FAMILIARES ───────────────────────────────────────────
         case 'add_recordatorio':
             $data = json_decode(file_get_contents('php://input'), true);
             $mensaje = trim($data['mensaje'] ?? '');
             $autor = trim($data['autor'] ?? '') ?: null;
             if ($mensaje === '') { echo json_encode(['error' => 'El mensaje no puede estar vacío']); break; }
             $mensaje = mb_substr($mensaje, 0, 280);
-            $stmt = $pdo->prepare("INSERT INTO recordatorios (mensaje, autor) VALUES (?, ?)");
-            $stmt->execute([$mensaje, $autor]);
+            $pdo->prepare("INSERT INTO recordatorios (mensaje, autor) VALUES (?, ?)")->execute([$mensaje, $autor]);
             echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
             break;
 
         case 'delete_recordatorio':
-            $id = (int)($_GET['id'] ?? 0);
-            $stmt = $pdo->prepare("DELETE FROM recordatorios WHERE id = ?");
-            $stmt->execute([$id]);
-            echo json_encode(['success' => true]);
-            break;
-
-        case 'mark_recordatorios_vistos':
-            $pdo->query("UPDATE recordatorios SET visto = 1 WHERE visto = 0");
-            echo json_encode(['success' => true]);
-            break;
-
-        // ─── MÉTRICAS DE DISPOSITIVOS (modo sync) ──────────────────────────
-        case 'get_devices':
-            // Para la pantalla "Diagnóstico" de Gestión.
-            echo json_encode($pdo->query("SELECT * FROM dispositivos ORDER BY ultimo_reporte DESC")->fetchAll());
-            break;
-
-        case 'report_device_stats':
-            // Cada Visor reporta su estado cada ~5 min. REPLACE = un renglón por
-            // equipo (device_id es PK), siempre con el último dato.
-            $d = json_decode(file_get_contents('php://input'), true);
-            if (!is_array($d) || empty($d['device_id'])) {
-                echo json_encode(['error' => 'Falta device_id']);
-                break;
-            }
-            $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
-            $ip = trim(explode(',', $ip)[0]);
-            $stmt = $pdo->prepare(
-                "REPLACE INTO dispositivos
-                    (device_id, nombre, sw_activo, cache_bytes, quota_bytes, persistente, cache_archivos,
-                     descarga_bytes, descarga_archivos, descarga_desde, media_total,
-                     version_hash, online, user_agent, ip, ultimo_reporte)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())"
-            );
-            $stmt->execute([
-                substr((string)$d['device_id'], 0, 64),
-                substr(trim((string)($d['nombre'] ?? '')), 0, 80) ?: null,
-                !empty($d['sw_activo']) ? 1 : 0,
-                (int)($d['cache_bytes'] ?? 0),
-                (int)($d['quota_bytes'] ?? 0),
-                !empty($d['persistente']) ? 1 : 0,
-                (int)($d['cache_archivos'] ?? 0),
-                (int)($d['descarga_bytes'] ?? 0),
-                (int)($d['descarga_archivos'] ?? 0),
-                (int)($d['descarga_desde'] ?? 0),
-                (int)($d['media_total'] ?? 0),
-                substr((string)($d['version_hash'] ?? ''), 0, 40) ?: null,
-                !empty($d['online']) ? 1 : 0,
-                substr((string)($d['ua'] ?? ''), 0, 255) ?: null,
-                substr($ip, 0, 45) ?: null,
-            ]);
+            $pdo->prepare("DELETE FROM recordatorios WHERE id = ?")->execute([(int)($_GET['id'] ?? 0)]);
             echo json_encode(['success' => true]);
             break;
 
@@ -484,4 +452,3 @@ try {
         'line' => $e->getLine()
     ]);
 }
-?>
