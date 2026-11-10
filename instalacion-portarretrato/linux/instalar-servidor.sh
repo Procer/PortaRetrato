@@ -13,10 +13,11 @@ TZ_NEW=America/Argentina/Buenos_Aires
 
 [ "$(id -u)" = 0 ] || { echo "Correr como root"; exit 1; }
 [ -f "$APP/schema.sql" ] || { echo "Falta $APP/schema.sql"; exit 1; }
+NEW_CFG=0
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -q apache2 libapache2-mod-php mariadb-server php-mysql php-gd php-mbstring \
-    php-xml php-curl php-zip syncthing avahi-daemon ffmpeg python3 >/dev/null
+    php-xml php-curl php-zip syncthing avahi-daemon ffmpeg python3 \n    network-manager dnsmasq-base iw sudo >/dev/null
 
 # ── Nombre en la red (portaretrato.local) y zona horaria ─────────────────────
 hostnamectl set-hostname "$HOSTNAME_NEW"
@@ -81,8 +82,43 @@ define('SYNC_DIR', '$SYNC');
 EOF
     chown $USR:$USR "$CFG"; chmod 640 "$CFG"
     echo ">>> Clave de Gestión: $GPASS"
+    NEW_CFG=1
 fi
 mysql portaretrato < "$APP/schema.sql"
+# Clave inicial: la muestra la pantalla del portarretrato hasta que el dueño haga el asistente de primer uso
+[ "${NEW_CFG:-0}" = 1 ] && mysql portaretrato -e "REPLACE INTO settings (clave, valor) VALUES ('clave_inicial', '$GPASS'), ('setup_done', '0');"
+
+# ── Red: NetworkManager + WiFi propio de configuración ──────────────────────
+# NetworkManager maneja cable y WiFi. Si el equipo no encuentra ninguna red conocida abre su
+# propio WiFi ("Portaretrato-XXXX") y la pantalla muestra cómo conectarse desde el celular.
+if [ -f /etc/network/interfaces ]; then
+    # que ifupdown deje de manejar las placas (si no, NetworkManager las ignora)
+    sed -i -E 's/^(allow-hotplug|auto) (en|eth|wl)/#\1 \2/; s/^iface (en|eth|wl)/#iface \1/' /etc/network/interfaces
+fi
+install -m 755 "$APP/instalacion-portarretrato/linux/pr-admin" /usr/local/bin/pr-admin
+install -m 755 "$APP/instalacion-portarretrato/linux/pr-red.sh" /usr/local/bin/pr-red
+echo "$USR ALL=(root) NOPASSWD: /usr/local/bin/pr-admin" > /etc/sudoers.d/portaretrato
+chmod 440 /etc/sudoers.d/portaretrato
+visudo -cf /etc/sudoers.d/portaretrato >/dev/null || { rm -f /etc/sudoers.d/portaretrato; echo "sudoers invalido"; exit 1; }
+# Con el WiFi propio activo, cualquier nombre de sitio lleva a esta página (el celular abre solo el "iniciar sesión")
+mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+echo "address=/#/10.42.0.1" > /etc/NetworkManager/dnsmasq-shared.d/portaretrato-captive.conf
+cat > /etc/systemd/system/portaretrato-red.service <<EOF2
+[Unit]
+Description=Portaretrato - red y WiFi de configuracion
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+ExecStart=/usr/local/bin/pr-red
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF2
+systemctl daemon-reload
+systemctl enable NetworkManager portaretrato-red >/dev/null 2>&1
+systemctl restart NetworkManager portaretrato-red 2>/dev/null || true
 
 # ── Importador: cada minuto ─────────────────────────────────────────────────
 cat > /etc/systemd/system/portaretrato-importar.service <<EOF

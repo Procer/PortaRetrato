@@ -930,3 +930,63 @@ function closeRecordatoriosOverlay() {
     clearTimeout(recordatoriosCloseTimer);
     document.getElementById('recordatorios-overlay').style.display = 'none';
 }
+
+
+// ─── AYUDA EN PANTALLA: sin red / primer uso ─────────────────────────────────
+// El portarretrato se entrega sin teclado ni mouse: cuando no hay internet (o es la primera
+// vez) la propia pantalla explica qué hacer desde el celular. Lee estado_red cada 8 s.
+(function () {
+    const box = document.createElement('div');
+    box.id = 'setup-overlay';
+    box.style.display = 'none';
+    document.body.appendChild(box);
+    let last = '';
+
+    function qr(text) {
+        try { const q = qrcode(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); }
+        catch (e) { return ''; }
+    }
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const wifiQr = (ssid, pass) => 'WIFI:T:WPA;S:' + ssid.replace(/([\;,:"])/g, '\$1') + ';P:' + pass.replace(/([\;,:"])/g, '\$1') + ';;';
+
+    function html(s) {
+        if (s.modo === 'ap' && s.setup) {
+            return `<div class="so-card"><div class="so-ico">📶</div>
+                <h1>Conectemos tu portarretrato a internet</h1>
+                ${s.error ? `<div class="so-err">${esc(s.error)}</div>` : ''}
+                <div class="so-row"><div class="so-steps">
+                    <p><b>1.</b> Con tu celular, conectate a este WiFi:</p>
+                    <p class="so-big">${esc(s.setup.ssid)}</p>
+                    <p>Clave: <span class="so-big so-pass">${esc(s.setup.clave)}</span></p>
+                    <p><b>2.</b> Se abre sola una página. Elegí el WiFi de tu casa y escribí su clave.</p>
+                    <p class="so-small">Si no se abre sola, entrá a <b>${esc(s.setup.url)}</b></p>
+                </div><div class="so-qr">${qr(wifiQr(s.setup.ssid, s.setup.clave))}<small>Escaneá para conectarte</small></div></div></div>`;
+        }
+        if (s.modo === 'conectando') return `<div class="so-card"><div class="so-ico">⏳</div><h1>Conectando al WiFi…</h1><p>Esto tarda unos segundos.</p></div>`;
+        if (s.modo === 'sin-red') return `<div class="so-card"><div class="so-ico">🔌</div><h1>No hay conexión de red</h1><p>Conectá un cable de red al portarretrato, o revisá que el router esté encendido.</p></div>`;
+        if (s.primer_uso && s.clave_inicial && s.modo === 'online') {
+            const host = (s.host || 'portaretrato') + '.local';
+            const url = 'http://' + host + '/gestion/';
+            const ip = s.ips && s.ips[0] ? 'http://' + s.ips[0] + '/gestion/' : '';
+            return `<div class="so-card"><div class="so-ico">👋</div><h1>¡Bienvenido! Ya hay internet</h1>
+                <div class="so-row"><div class="so-steps">
+                    <p><b>Último paso:</b> con tu celular, conectado al <b>mismo WiFi</b>, abrí:</p>
+                    <p class="so-big">${esc(url)}</p>
+                    <p>Clave inicial: <span class="so-big so-pass">${esc(s.clave_inicial)}</span></p>
+                    <p class="so-small">${ip ? 'Si no abre, probá con ' + esc(ip) + ' · ' : ''}Te va a guiar para elegir tu ciudad y tu clave.</p>
+                </div><div class="so-qr">${qr(url)}<small>Escaneá con la cámara</small></div></div></div>`;
+        }
+        return '';
+    }
+
+    async function tick() {
+        try {
+            const r = await fetch('backend/api.php?action=estado_red', { cache: 'no-store' });
+            const s = await r.json();
+            const h = html(s);
+            if (h !== last) { last = h; box.innerHTML = h; box.style.display = h ? 'flex' : 'none'; }
+        } catch (e) { /* sin servidor: no tocar lo que se ve */ }
+    }
+    tick();
+    setInterval(tick, 8000);
+})();

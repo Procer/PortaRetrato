@@ -1,0 +1,92 @@
+#!/bin/bash
+# Acciones de sistema que Gestión puede pedir (se instala en /usr/local/bin/pr-admin y
+# Apache/PHP lo llama con sudo). SOLO hace las acciones de esta lista y valida todo lo que
+# recibe: nunca ejecuta texto armado por quien llama.
+#
+#   pr-admin wifi-status                 JSON con el estado de la red
+#   pr-admin wifi-scan                   JSON con las redes WiFi visibles
+#   pr-admin wifi-connect                lee SSID (linea 1) y clave (linea 2) por stdin; lo
+#                                        aplica el servicio portaretrato-red (no corta la
+#                                        conexion del celular antes de responder)
+#   pr-admin wifi-forget                 olvida TODAS las redes WiFi guardadas
+#   pr-admin reboot | poweroff
+#   pr-admin set-timezone <Zona/Ciudad>
+#   pr-admin set-rotate <normal|left|right|inverted>
+#   pr-admin restart-kiosk               reabre el Visor (Chromium)
+set -u
+RUN=/run/portaretrato
+mkdir -p "$RUN"
+cmd="${1:-}"
+
+json_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n")))'; }
+
+case "$cmd" in
+wifi-status)
+    python3 - <<'PY'
+import json, subprocess, os
+def sh(*a):
+    try: return subprocess.run(a, capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception: return ''
+RUN = '/run/portaretrato'
+modo = open(RUN + '/modo').read().strip() if os.path.exists(RUN + '/modo') else 'desconocido'
+dev = [l.split(':') for l in sh('nmcli', '-t', '-f', 'DEVICE,TYPE,STATE,CONNECTION', 'dev').splitlines()]
+wifi = [d for d in dev if len(d) > 3 and d[1] == 'wifi']
+eth = [d for d in dev if len(d) > 3 and d[1] == 'ethernet' and d[2] == 'connected']
+ssid = wifi[0][3] if wifi and wifi[0][2] == 'connected' else ''
+err = open(RUN + '/error').read().strip() if os.path.exists(RUN + '/error') else ''
+print(json.dumps({'modo': modo, 'hay_wifi': bool(wifi), 'ssid': ssid, 'cable': bool(eth), 'error': err}))
+PY
+    ;;
+wifi-scan)
+    # Si hay una lista reciente (la deja el servicio antes de abrir su WiFi) se usa esa:
+    # con el WiFi propio activo no se puede escanear.
+    if [ "$(cat $RUN/modo 2>/dev/null)" = "ap" ] && [ -f $RUN/redes.json ]; then cat $RUN/redes.json; exit 0; fi
+    nmcli dev wifi rescan >/dev/null 2>&1; sleep 2
+    nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null | python3 -c '
+import sys, json
+seen = {}
+for l in sys.stdin:
+    p = l.rstrip("\n").replace("\\:", "\x00").split(":")
+    if len(p) < 3 or not p[0].strip(): continue
+    n = p[0].replace("\x00", ":")
+    s = int(p[1] or 0)
+    if n not in seen or s > seen[n][0]: seen[n] = (s, p[2] not in ("", "--"))
+print(json.dumps([{"ssid": k, "senal": v[0], "clave": v[1]} for k, v in sorted(seen.items(), key=lambda x: -x[1][0])]))'
+    ;;
+wifi-connect)
+    IFS= read -r ssid; IFS= read -r pass
+    [ -n "$ssid" ] && [ ${#ssid} -le 32 ] || { echo '{"error":"Nombre de red invalido"}'; exit 1; }
+    if [ -n "$pass" ] && { [ ${#pass} -lt 8 ] || [ ${#pass} -gt 63 ]; }; then echo '{"error":"La clave del WiFi debe tener entre 8 y 63 caracteres"}'; exit 1; fi
+    umask 077
+    printf '%s\n%s\n' "$ssid" "$pass" > $RUN/pendiente
+    rm -f $RUN/error
+    echo '{"success":true}'
+    ;;
+wifi-forget)
+    nmcli -t -f UUID,TYPE con show | awk -F: '$2=="802-11-wireless"{print $1}' | while read -r u; do nmcli con delete uuid "$u" >/dev/null 2>&1; done
+    echo '{"success":true}'
+    ;;
+reboot)   (sleep 2; systemctl reboot) >/dev/null 2>&1 & echo '{"success":true}' ;;
+poweroff) (sleep 2; systemctl poweroff) >/dev/null 2>&1 & echo '{"success":true}' ;;
+set-timezone)
+    tz="${2:-}"
+    [[ "$tz" =~ ^[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2}$ ]] && [ -f "/usr/share/zoneinfo/$tz" ] || { echo '{"error":"Zona horaria invalida"}'; exit 1; }
+    timedatectl set-timezone "$tz" && for ini in /etc/php/*/apache2/conf.d/99-portaretrato.ini; do
+        [ -f "$ini" ] && sed -i "s#^date.timezone.*#date.timezone = $tz#" "$ini"; done
+    systemctl reload apache2 >/dev/null 2>&1
+    echo '{"success":true}'
+    ;;
+set-rotate)
+    r="${2:-}"
+    case "$r" in normal|left|right|inverted) ;; *) echo '{"error":"Valor invalido"}'; exit 1;; esac
+    f=/etc/default/portaretrato
+    touch $f
+    if grep -q '^ROTATE=' $f; then sed -i "s/^ROTATE=.*/ROTATE=\"$r\"/" $f; else echo "ROTATE=\"$r\"" >> $f; fi
+    # Aplicarla ya mismo en la sesion grafica de 'frame' (y queda guardada para el proximo arranque)
+    out="$(sudo -u frame env DISPLAY=:0 xrandr 2>/dev/null | awk '/ connected/{print $1; exit}')"
+    [ -n "$out" ] && sudo -u frame env DISPLAY=:0 xrandr --output "$out" --rotate "$r" >/dev/null 2>&1
+    echo '{"success":true}'
+    ;;
+restart-kiosk) pkill -x chromium >/dev/null 2>&1; echo '{"success":true}' ;;
+*) echo '{"error":"Accion desconocida"}'; exit 1 ;;
+esac

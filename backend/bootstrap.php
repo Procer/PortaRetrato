@@ -77,3 +77,46 @@ function makeThumb(string $source, string $destFull, int $maxDim = 400): bool {
     imagedestroy($dst);
     return (bool)$ok;
 }
+
+// ─── Ajustes, clave de Gestión y acciones de sistema ─────────────────────────
+function getSetting(PDO $pdo, string $key, string $default = ''): string {
+    $st = $pdo->prepare("SELECT valor FROM settings WHERE clave = ?");
+    $st->execute([$key]);
+    $v = $st->fetchColumn();
+    return $v === false || $v === null ? $default : (string)$v;
+}
+
+function setSetting(PDO $pdo, string $key, string $value): void {
+    $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES (?, ?)")->execute([$key, $value]);
+}
+
+/** La clave cambiada desde Gestión (hash en la base) manda sobre la de config.local.php. */
+function checkGestionPassword(PDO $pdo, string $input): bool {
+    $hash = getSetting($pdo, 'gestion_pass_hash');
+    if ($hash !== '') return password_verify($input, $hash);
+    $p = GESTION_PASSWORD;
+    $isHash = strpos($p, '$2y$') === 0 || strpos($p, '$argon') === 0;
+    return $isHash ? password_verify($input, $p) : hash_equals($p, $input);
+}
+
+/** Estado de la red según el servicio portaretrato-red (/run/portaretrato). */
+function redEstado(): array {
+    $d = '/run/portaretrato';
+    $modo = is_file("$d/modo") ? trim((string)@file_get_contents("$d/modo")) : '';
+    $setup = ($modo === 'ap' && is_file("$d/setup.json")) ? json_decode((string)@file_get_contents("$d/setup.json"), true) : null;
+    $err = is_file("$d/error") ? trim((string)@file_get_contents("$d/error")) : '';
+    return ['modo' => $modo, 'setup' => $setup, 'error' => $err];
+}
+
+/** Ejecuta una acción de /usr/local/bin/pr-admin (sudo, sin shell). Devuelve el JSON que responde. */
+function prAdmin(array $args, string $stdin = ''): array {
+    $bin = '/usr/local/bin/pr-admin';
+    if (!is_file($bin)) return ['error' => 'Esta función solo está disponible en el portarretrato'];
+    $p = @proc_open(array_merge(['sudo', '-n', $bin], $args), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($p)) return ['error' => 'No se pudo ejecutar'];
+    fwrite($pipes[0], $stdin); fclose($pipes[0]);
+    $out = stream_get_contents($pipes[1]); fclose($pipes[1]); fclose($pipes[2]);
+    proc_close($p);
+    $j = json_decode($out, true);
+    return is_array($j) ? $j : (json_decode(json_encode($j), true) ?: ['error' => 'Respuesta inválida']);
+}

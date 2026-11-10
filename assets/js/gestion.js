@@ -35,6 +35,7 @@ const ICONS = {
     refresh: 'M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5',
     logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
     search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16M21 21l-4.3-4.3',
+    help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
     phone: 'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2M12 18h.01',
     sliders2: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     select: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
@@ -154,6 +155,7 @@ const TABS = [
     ['pase', 'Pase Rápido', 'zap'],
     ['mensajes', 'Mensajes', 'message'],
     ['sistema', 'Sistema', 'sliders'],
+    ['ayuda', 'Ayuda', 'help'],
 ];
 
 function renderTabs(active) {
@@ -166,16 +168,23 @@ function route() {
     clearTimeout(pollTimer);
     const parts = (location.hash.replace(/^#\/?/, '') || 'albumes').split('/');
     const token = ++navToken;
-    const tab = TABS.find(t => t[0] === parts[0]) ? parts[0] : 'albumes';
-    renderTabs(tab);
-    const views = { albumes: () => parts[1] ? viewAlbum(+parts[1], token) : viewAlbums(token), pantalla: viewPantalla, pase: viewPase, mensajes: viewMensajes, sistema: viewSistema };
+    const tab = parts[0] === 'bienvenida' ? 'bienvenida' : TABS.find(t => t[0] === parts[0]) ? parts[0] : 'albumes';
+    renderTabs(tab === 'bienvenida' ? '' : tab);
+    const views = { albumes: () => parts[1] ? viewAlbum(+parts[1], token) : viewAlbums(token), pantalla: viewPantalla, pase: viewPase, mensajes: viewMensajes, sistema: viewSistema, ayuda: viewAyuda, bienvenida: viewBienvenida };
     main.innerHTML = tab === 'albumes'
         ? '<div class="skel-wrap"><div class="skel skel-title"></div><div class="skel skel-hero"></div><div class="skel-cards"><div class="skel"></div><div class="skel"></div></div></div>'
         : '<div class="skel-wrap"><div class="skel skel-title"></div><div class="skel skel-block"></div><div class="skel skel-block"></div><div class="skel skel-block"></div></div>';
     main.dataset.fresh = '1';
     window.scrollTo(0, 0);
-    Promise.resolve(views[tab](token)).catch(fail);
+    // Primera vez: llevar al asistente de bienvenida (una sola comprobación por carga)
+    if (setupChecked || tab === 'bienvenida') return void Promise.resolve(views[tab](token)).catch(fail);
+    setupChecked = true;
+    api('get_settings').then(cfg => {
+        if (cfg.setup_done !== '1') { location.hash = '#/bienvenida'; if (tab === 'bienvenida') route(); }
+        else views[tab](token);
+    }).catch(fail);
 }
+let setupChecked = false;
 window.addEventListener('hashchange', route);
 
 // Animación de entrada solo cuando cambia de pantalla (no en cada refresco)
@@ -789,7 +798,7 @@ async function viewMensajes(token) {
             <button class="btn btn-primary btn-block" id="m-send" style="margin-top:10px">${ic('message')} Enviar al portarretrato</button>
         </div>
         <div class="card">
-            <div class="row"><div class="lbl"><b>Sección para tu hija</b><small>Abrí <b>${esc(location.origin)}/hija/</b> en su celular y agregala a la pantalla de inicio: solo ve y escribe mensajes</small></div><a class="btn" href="/hija/" target="_blank">Abrir</a></div>
+            <div class="row"><div class="lbl"><b>Escribir desde otro celular</b><small>Abrí <b>${esc(location.origin)}/hija/</b> en su celular y agregala a la pantalla de inicio: solo ve y escribe mensajes</small></div><a class="btn" href="/hija/" target="_blank">Abrir</a></div>
             <div class="row"><div class="lbl"><b>Segundos en pantalla</b><small>Cuánto tiempo se muestran al abrirlas</small></div>${stepper('id="m-dur"', s.recordatorios_duration || '20', 5, 120)}</div>
         </div>
         ${list.length ? `<div class="section-title">Enviados</div><div class="card">${list.map(r => `
@@ -821,7 +830,7 @@ function qrSvg(text) {
 }
 
 async function viewSistema(token) {
-    const st = await api('get_status');
+    const [st, cfg, net] = await Promise.all([api('get_status'), api('get_settings'), api('wifi_status').catch(() => ({ error: 'x' }))]);
     if (!alive(token)) return;
     const usedPct = st.disco_total ? Math.round((1 - st.disco_libre / st.disco_total) * 100) : 0;
     const url = `http://${st.host}.local/gestion/`;
@@ -842,6 +851,8 @@ async function viewSistema(token) {
             <div class="bar ${usedPct > 85 ? 'warn' : ''}"><i style="width:${usedPct}%"></i></div>
             ${st.pendientes ? `<div class="banner" style="margin:16px 0 0"><span class="spin"></span>Procesando ${plural(st.pendientes, 'archivo nuevo', 'archivos nuevos')}…</div>` : ''}
         </div>
+
+        ${equipoHtml(cfg, net)}
 
         <div class="section-title">Sincronizar desde el celular</div>
         <div class="card pad">
@@ -891,6 +902,7 @@ async function viewSistema(token) {
             <div class="row"><div class="lbl"><b>Cerrar sesión</b></div><a class="btn btn-sm" href="logout.php">${ic('logout')} Salir</a></div>
         </div>`;
 
+    equipoBind(token);
     const copy = $('#sc-copy');
     if (copy) copy.onclick = async () => {
         try { await navigator.clipboard.writeText(sc.id); }
@@ -905,6 +917,233 @@ async function viewSistema(token) {
         try { await api('syncthing_remove', { body: { id: b.dataset.unpair } }); viewSistema(token); } catch (e) { fail(e); }
     });
     $('#sys-import').onclick = async () => { try { await api('run_import'); toast('Buscando…', 'ok'); setTimeout(() => alive(token) && viewSistema(token), 3000); } catch (e) { fail(e); } };
+}
+
+// ─── AYUDA ───────────────────────────────────────────────────────────────────
+function viewAyuda() {
+    const sec = (title, icon, body, open) => `<details class="help" ${open ? 'open' : ''}><summary>${ic(icon)}<span>${title}</span></summary><div class="help-body">${body}</div></details>`;
+    main.innerHTML = `
+        <div class="page-head"><h1>Ayuda</h1></div>
+        <p class="page-sub">Todo lo que necesitás saber para usar tu portarretrato. Tocá cada tema para abrirlo.</p>
+
+        ${sec('Lo básico: qué hace', 'monitor', `
+            <p>El portarretrato muestra tus fotos y videos una tras otra, con la hora y el clima abajo. <b>No hace falta tocar nada</b>: se prende solo y arranca solo.</p>
+            <p>Tenés <b>dos lugares</b> para manejarlo: la pantalla del portarretrato (el <b>Visor</b>) y esta página, que se llama <b>Gestión</b> y se abre desde el celular.</p>`, true)}
+
+        ${sec('Los 3 botones (o tocar la pantalla)', 'zap', `
+            <ol class="steps">
+                <li><span><b>Botón 1 — Pase Rápido.</b> Muestra las imágenes sorpresa del día (cumpleaños, recuerdos, avisos). Al terminar vuelve a las fotos. Tocar la pantalla hace lo mismo.</span></li>
+                <li><span><b>Botón 2 — Sonido.</b> Si está pasando un video, activa o apaga su sonido. Los videos arrancan en silencio.</span></li>
+                <li><span><b>Botón 3 — Mensajes.</b> Abre las notas de la familia. Para cerrarlas, tocá la pantalla o la X.</span></li>
+            </ol>
+            <p class="hint">Si no tenés botones, el teclado también sirve: teclas <b>1</b>, <b>2</b> y <b>3</b>.</p>`)}
+
+        ${sec('Agregar fotos y videos', 'upload', `
+            <p><b>Desde el celular, a mano:</b></p>
+            <ol class="steps">
+                <li><span>Entrá a <b>Álbumes</b> y elegí uno (o creá uno con <b>Nuevo</b>).</span></li>
+                <li><span>Tocá el botón <b>+</b> y elegí las fotos o videos del celular.</span></li>
+                <li><span>Esperá a que cada una diga <b>Listo</b> y tocá <b>Listo</b>. Aparecen en el portarretrato en un minuto.</span></li>
+            </ol>
+            <p><b>Automático:</b> en <b>Sistema → Sincronizar desde el celular</b> podés enlazar una carpeta del teléfono: las fotos nuevas viajan solas, sin abrir nada.</p>
+            <p class="hint">Formatos: JPG, PNG, HEIC (iPhone) y videos MP4. Los videos muy largos conviene recortarlos.</p>`)}
+
+        ${sec('Álbumes: qué se ve en pantalla', 'folder', `
+            <p>Un álbum es una carpeta de fotos. El portarretrato muestra <b>un álbum a la vez</b>.</p>
+            <ul class="help-list">
+                <li>Para cambiar cuál se ve: abrí el menú <b>⋯</b> del álbum → <b>Mostrar en pantalla</b>.</li>
+                <li>Para borrar fotos: <b>Seleccionar</b>, marcá las que sobran y tocá el tacho.</li>
+                <li>Para enderezar una foto de costado, usá <b>Rotar</b>.</li>
+                <li><b>Ajustes del álbum</b>: cuántos segundos dura cada foto y la animación, solo para ese álbum.</li>
+            </ul>
+            <p class="hint">Las fotos se muestran en orden aleatorio, sin repetir hasta haber pasado todas.</p>`)}
+
+        ${sec('Pantalla: reloj, clima y horario', 'sliders', `
+            <ul class="help-list">
+                <li><b>Presentación:</b> segundos por foto y tipo de animación.</li>
+                <li><b>Reloj y clima:</b> elegí estilo, tamaño y tu ciudad. Si se corta internet, el clima muestra el último dato con un aviso.</li>
+                <li><b>Modo noche:</b> baja el brillo en el horario que elijas.</li>
+                <li><b>Horario de encendido:</b> fuera de horario se muestra una imagen de reposo (o queda negra), así no queda prendida toda la noche.</li>
+            </ul>
+            <p>Con <b>Vista previa</b> ves cómo queda sin ir hasta el portarretrato.</p>`)}
+
+        ${sec('Pase Rápido', 'zap', `
+            <p>Son imágenes sorpresa con día y hora: por ejemplo, la tarjeta de cumpleaños de la abuela el sábado. Antes de esa hora se muestran las del día; después, las del día siguiente.</p>
+            <p>Agregalas en <b>Pase Rápido → Agregar</b> y elegí el día y la hora de cada una.</p>`)}
+
+        ${sec('Mensajes familiares', 'message', `
+            <p>Escribí una nota en <b>Mensajes</b> y aparece en el portarretrato con un aviso titilando. Se lee con el botón 3 o tocando el ícono de nota.</p>
+            <p>También hay una página aparte, <b>${esc(location.origin)}/hija/</b>, para que un familiar lea y conteste desde su celular sin entrar a Gestión. Abrila en su teléfono y agregala a la pantalla de inicio.</p>`)}
+
+        ${sec('Entrar desde el celular', 'phone', `
+            <p>El celular tiene que estar en <b>el mismo WiFi</b> que el portarretrato. Abrí <b>${esc(location.origin)}/gestion/</b> o escaneá el código de <b>Sistema → Entrar desde el celular</b>.</p>
+            <p>La clave es la que te dejó quien lo instaló. Podés instalarlo como app: <b>Sistema → Instalar como app</b>.</p>`)}
+
+        ${sec('Algo no anda', 'refresh', `
+            <ul class="help-list">
+                <li><b>La pantalla está negra o con la imagen de reposo:</b> puede ser el horario de encendido (<b>Pantalla → Horario</b>).</li>
+                <li><b>No aparecen las fotos nuevas:</b> andá a <b>Sistema → Buscar archivos nuevos → Ahora</b>. Si subiste muchas, tarda unos minutos.</li>
+                <li><b>Se ve “Sin conexión” en rojo:</b> revisá el WiFi o el router. Las fotos siguen pasando; solo se frena el clima.</li>
+                <li><b>No puedo entrar desde el celular:</b> comprobá que esté en el mismo WiFi y probá con la dirección numérica que figura en <b>Sistema</b>.</li>
+                <li><b>Nada responde:</b> desenchufá el portarretrato 10 segundos y volvé a enchufarlo. Tarda 1–2 minutos en arrancar solo.</li>
+            </ul>
+            <p class="hint">Si está subiendo fotos, esperá a que termine antes de desenchufarlo.</p>`)}`;
+}
+
+// ─── CONFIGURACIÓN DEL EQUIPO (asistente de primer uso y Sistema) ────────────
+const TZ_LIST = ['America/Argentina/Buenos_Aires', 'America/Montevideo', 'America/Santiago', 'America/Asuncion', 'America/La_Paz', 'America/Lima', 'America/Bogota', 'America/Guayaquil', 'America/Caracas', 'America/Mexico_City', 'America/Panama', 'America/Costa_Rica', 'America/Havana', 'America/Sao_Paulo', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/Madrid', 'Europe/Lisbon', 'Europe/Paris', 'Europe/Rome', 'Europe/London'];
+function tzOptions(cur) {
+    const list = TZ_LIST.includes(cur) || !cur ? TZ_LIST : [cur, ...TZ_LIST];
+    return list.map(z => `<option value="${esc(z)}" ${z === cur ? 'selected' : ''}>${esc(z.replace(/_/g, ' '))}</option>`).join('');
+}
+const ROT_LABELS = { left: 'Vertical (girada a la izquierda)', right: 'Vertical (girada a la derecha)', normal: 'Horizontal', inverted: 'Horizontal invertida' };
+function rotOptions(cur) { return Object.entries(ROT_LABELS).map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join(''); }
+
+async function geocodeCity(name) {
+    const q = name.split(',')[0].trim();
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=es&format=json`);
+    const j = await r.json();
+    if (!j.results || !j.results.length) return null;
+    const l = j.results[0];
+    return { label: `${l.name}, ${l.admin1 || l.country || ''}`.replace(/, $/, ''), lat: String(l.latitude), lon: String(l.longitude) };
+}
+
+// Primera vez: una sola pantalla con lo imprescindible
+async function viewBienvenida(token) {
+    const s = await api('get_settings');
+    if (!alive(token)) return;
+    const browserTz = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'America/Argentina/Buenos_Aires';
+    let city = null;
+    main.innerHTML = `
+        <div class="page-head"><h1>¡Bienvenido!</h1></div>
+        <p class="page-sub">Cuatro datos y queda listo. Todo se puede cambiar después en <b>Sistema</b> y <b>Pantalla</b>.</p>
+        <div class="section-title">1 · Tu clave</div>
+        <div class="card pad">
+            <p class="hint" style="margin-bottom:10px">Elegí una clave que recuerdes (mínimo 6 caracteres). Reemplaza a la clave inicial de la pantalla.</p>
+            <input type="password" id="b-p1" placeholder="Clave nueva" autocomplete="new-password" style="margin-bottom:10px">
+            <input type="password" id="b-p2" placeholder="Repetí la clave" autocomplete="new-password">
+        </div>
+        <div class="section-title">2 · Tu ciudad (para el clima)</div>
+        <div class="card pad">
+            <div class="inline-form"><input type="text" id="b-city" placeholder="Ej: Rosario, Argentina"><button class="btn btn-primary" id="b-find">${ic('search')}</button></div>
+            <p class="hint" id="b-found" style="margin-top:8px"></p>
+        </div>
+        <div class="section-title">3 · Mensajes desde el celular</div>
+        <div class="card pad">
+            <p class="hint" style="margin-bottom:10px">Si alguien de la familia va a escribir mensajes al portarretrato desde su propio celular, ¿cómo se llama? (opcional)</p>
+            <input type="text" id="b-fam" maxlength="40" placeholder="Ej: Sofía" value="${esc(s.familiar_nombre || '')}">
+        </div>
+        <div class="section-title">4 · Pantalla</div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>Orientación</b></div><select id="b-rot">${rotOptions(s.rotate || 'left')}</select></div>
+            <div class="row"><div class="lbl"><b>Zona horaria</b></div><select id="b-tz">${tzOptions(browserTz)}</select></div>
+        </div>
+        <div class="banner" id="b-err" hidden style="background:var(--danger);color:#fff"></div>
+        <button class="btn btn-primary btn-block" id="b-go" style="margin-top:8px">Listo, empezar</button>`;
+
+    const find = async () => {
+        const name = $('#b-city').value.trim(); if (!name) return;
+        $('#b-find').disabled = true;
+        try {
+            city = await geocodeCity(name);
+            $('#b-found').textContent = city ? `✓ ${city.label}` : 'No encontré esa ciudad. Probá con otro nombre.';
+            if (city) $('#b-city').value = city.label;
+        } catch (e) { $('#b-found').textContent = 'No se pudo buscar (¿hay internet?).'; }
+        $('#b-find').disabled = false;
+    };
+    $('#b-find').onclick = find;
+    $('#b-city').onkeydown = e => { if (e.key === 'Enter') find(); };
+    $('#b-go').onclick = async () => {
+        const err = m => { const b = $('#b-err'); b.textContent = m; b.hidden = false; b.scrollIntoView({ block: 'center' }); };
+        const p1 = $('#b-p1').value;
+        if (p1.length < 6) return err('La clave debe tener al menos 6 caracteres.');
+        if (p1 !== $('#b-p2').value) return err('Las dos claves no coinciden.');
+        if ($('#b-city').value.trim() && !city) await find();
+        $('#b-go').disabled = true;
+        try {
+            await api('change_password', { body: { nueva: p1 } });
+            const set = { familiar_nombre: $('#b-fam').value.trim() };
+            if (city) Object.assign(set, { weather_city: city.label, weather_lat: city.lat, weather_lon: city.lon });
+            await api('update_settings', { body: set });
+            await api('sys_action', { body: { accion: 'zona', valor: $('#b-tz').value } });
+            await api('sys_action', { body: { accion: 'rotar', valor: $('#b-rot').value } });
+            await api('setup_done', { body: {} });
+            toast('¡Todo listo!', 'ok');
+            location.hash = '#/ayuda';
+        } catch (e) { $('#b-go').disabled = false; err(e.message || 'No se pudo guardar'); }
+    };
+}
+
+// WiFi: elegir otra red (misma lógica que la página /conectar/ del primer arranque)
+function wifiSheet(onDone) {
+    openSheet(`<h3>Cambiar de WiFi</h3><p class="sub">Elegí la red y escribí su clave. El portarretrato puede tardar un minuto en reconectarse.</p>
+        <div id="w-list"><p class="hint">Buscando redes…</p></div><div id="w-form"></div>
+        <div class="btns"><button class="btn" data-no>Cerrar</button></div>`, (sh, close) => {
+        $('[data-no]', sh).onclick = close;
+        (async () => {
+            let nets = [];
+            try { const j = await api('wifi_scan'); nets = Array.isArray(j) ? j : []; } catch (e) {}
+            $('#w-list', sh).innerHTML = (nets.length ? `<div class="card">${nets.map((n, i) => `<div class="row" data-i="${i}" style="cursor:pointer"><div class="lbl"><b>${esc(n.ssid)}</b><small>${n.clave ? 'Con clave' : 'Abierta'} · señal ${n.senal}%</small></div></div>`).join('')}</div>` : '<p class="hint">No se ven redes.</p>') + '<button class="btn btn-block" id="w-manual" style="margin-top:6px">Mi red no aparece</button>';
+            const form = (ssid, needPass, manual) => {
+                $('#w-form', sh).innerHTML = `${manual ? '<input type="text" id="w-ssid" placeholder="Nombre del WiFi" style="margin:12px 0 8px" autocapitalize="none">' : `<p style="margin:14px 0 8px"><b>${esc(ssid)}</b></p>`}
+                    ${needPass ? '<input type="password" id="w-pw" placeholder="Clave del WiFi" autocomplete="off" autocapitalize="none">' : ''}
+                    <button class="btn btn-primary btn-block" id="w-go" style="margin-top:12px">Conectar</button>`;
+                $('#w-go', sh).onclick = async () => {
+                    const name = manual ? $('#w-ssid', sh).value.trim() : ssid, clave = $('#w-pw', sh) ? $('#w-pw', sh).value : '';
+                    if (!name) return;
+                    try {
+                        const j = await api('wifi_connect', { body: { ssid: name, clave } });
+                        if (j.error) throw new Error(j.error);
+                        close(); toast('Conectando… mirá la pantalla del portarretrato', 'ok'); onDone && onDone();
+                    } catch (e) { fail(e); }
+                };
+            };
+            $$('[data-i]', sh).forEach(r => r.onclick = () => { const n = nets[+r.dataset.i]; form(n.ssid, n.clave); });
+            $('#w-manual', sh).onclick = () => form('', true, true);
+        })();
+    });
+}
+
+function passwordSheet() {
+    openSheet(`<h3>Cambiar clave</h3><p class="sub">Es la clave con la que entrás a Gestión.</p>
+        <input type="password" id="cp-a" placeholder="Clave actual" autocomplete="current-password" style="margin-bottom:10px">
+        <input type="password" id="cp-1" placeholder="Clave nueva (mínimo 6)" autocomplete="new-password" style="margin-bottom:10px">
+        <input type="password" id="cp-2" placeholder="Repetí la clave nueva" autocomplete="new-password">
+        <div class="btns"><button class="btn" data-no>Cancelar</button><button class="btn btn-primary" data-ok>Guardar</button></div>`, (sh, close) => {
+        $('[data-no]', sh).onclick = close;
+        $('[data-ok]', sh).onclick = async () => {
+            if ($('#cp-1', sh).value !== $('#cp-2', sh).value) return toast('Las claves nuevas no coinciden', 'err');
+            try { await api('change_password', { body: { actual: $('#cp-a', sh).value, nueva: $('#cp-1', sh).value } }); close(); toast('Clave cambiada', 'ok'); } catch (e) { fail(e); }
+        };
+    });
+}
+
+function equipoHtml(s, net) {
+    const redTxt = net.error ? 'No disponible' : net.ssid ? `Conectado a “${esc(net.ssid)}”` : net.cable ? 'Conectado por cable' : 'Sin conexión';
+    return `
+        <div class="section-title">Mi portarretrato</div>
+        <div class="card">
+            <div class="row"><div class="lbl"><b>WiFi</b><small>${redTxt}</small></div>${net.hay_wifi === false ? '' : `<button class="btn btn-sm" id="eq-wifi">${ic('refresh')} Cambiar</button>`}</div>
+            <div class="row"><div class="lbl"><b>Orientación de la pantalla</b></div><select id="eq-rot">${rotOptions(s.rotate || 'left')}</select></div>
+            <div class="row"><div class="lbl"><b>Zona horaria</b></div><select id="eq-tz">${tzOptions(s.timezone || 'America/Argentina/Buenos_Aires')}</select></div>
+            <div class="row"><div class="lbl"><b>Quién escribe desde su celular</b><small>Nombre en sus mensajes (página /hija/)</small></div><input type="text" id="eq-fam" maxlength="40" value="${esc(s.familiar_nombre || '')}" placeholder="Hija" style="width:130px"></div>
+            <div class="row"><div class="lbl"><b>Clave de Gestión</b></div><button class="btn btn-sm" id="eq-pass">Cambiar</button></div>
+            <div class="row"><div class="lbl"><b>Volver a abrir el Visor</b><small>Si la pantalla se ve mal o quedó trabada</small></div><button class="btn btn-sm" id="eq-kiosk">Reabrir</button></div>
+            <div class="row"><div class="lbl"><b>Reiniciar</b><small>Tarda 1–2 minutos en volver</small></div><button class="btn btn-sm" id="eq-reboot">Reiniciar</button></div>
+            <div class="row"><div class="lbl"><b>Apagar</b><small>Para prenderlo hay que usar el botón del equipo</small></div><button class="btn btn-sm btn-danger" id="eq-off">Apagar</button></div>
+        </div>`;
+}
+
+function equipoBind(token) {
+    const act = async (accion, valor, msg) => { try { const j = await api('sys_action', { body: { accion, valor } }); if (j && j.error) throw new Error(j.error); toast(msg, 'ok'); } catch (e) { fail(e); } };
+    const w = $('#eq-wifi'); if (w) w.onclick = () => wifiSheet(() => setTimeout(() => alive(token) && viewSistema(token), 4000));
+    $('#eq-rot').onchange = e => act('rotar', e.target.value, 'Pantalla girada');
+    $('#eq-tz').onchange = e => act('zona', e.target.value, 'Zona horaria guardada');
+    $('#eq-fam').onchange = async e => { try { await api('update_settings', { body: { familiar_nombre: e.target.value.trim() } }); toast('Guardado', 'ok'); } catch (x) { fail(x); } };
+    $('#eq-pass').onclick = passwordSheet;
+    $('#eq-kiosk').onclick = () => act('reabrir_visor', '', 'Reabriendo el Visor…');
+    $('#eq-reboot').onclick = async () => { if (await confirmSheet({ title: '¿Reiniciar el portarretrato?', text: 'Se apaga la pantalla y vuelve en 1–2 minutos.', ok: 'Reiniciar', danger: false })) act('reiniciar', '', 'Reiniciando…'); };
+    $('#eq-off').onclick = async () => { if (await confirmSheet({ title: '¿Apagar el portarretrato?', text: 'Para volver a prenderlo hay que apretar el botón de encendido del equipo.', ok: 'Apagar' })) act('apagar', '', 'Apagando…'); };
 }
 
 // Para poder instalarla como app (solo con conexión segura); no guarda nada en caché.

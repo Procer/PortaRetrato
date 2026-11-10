@@ -49,3 +49,10 @@ AddType application/x-x509-ca-cert .crt
     RewriteRule ^backend/(config|config\.local|bootstrap|sync_lib|config\.local\.sample)\.php$ - [F,L]
     RewriteRule ^schema\.sql$ - [F,L]
 </IfModule>
+
+# WiFi de configuración: los celulares comprueban internet pidiendo estas direcciones; si las
+# redirigimos, abren solos la página para elegir la red de la casa.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(generate_204|gen_204|hotspot-detect\.html|library/test/success\.html|connecttest\.txt|ncsi\.txt|canonical\.html)$ /conectar/ [R=302,L]
+</IfModule>

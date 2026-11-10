@@ -1,2 +1,4 @@
 *.sh text eol=lf
 *.cfg text eol=lf
+instalacion-portarretrato/linux/pr-admin text eol=lf
+instalacion-portarretrato/linux/pr-red.sh text eol=lf

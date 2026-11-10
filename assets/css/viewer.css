@@ -146,3 +146,19 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color:
 .video-sound-btn.unmuted { background: rgba(45,212,191,0.25); border-color: rgba(45,212,191,0.4); color: #2dd4bf; }
 
 /* Banner Pase Rápido */
+
+/* ─── Ayuda en pantalla: sin red / primer uso ─── */
+#setup-overlay { position: fixed; inset: 0; z-index: 9990; background: rgba(8,8,14,.94); align-items: center; justify-content: center; padding: 4vmin; color: #fff; font-family: 'Inter', 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; cursor: default; }
+#setup-overlay .so-card { max-width: 1000px; width: 100%; text-align: center; }
+#setup-overlay .so-ico { font-size: 9vmin; line-height: 1; margin-bottom: 2vmin; }
+#setup-overlay h1 { font-size: 5vmin; font-weight: 800; margin: 0 0 3vmin; letter-spacing: -.02em; }
+#setup-overlay p { font-size: 3vmin; line-height: 1.4; margin: 1.2vmin 0; }
+#setup-overlay .so-row { display: flex; gap: 5vmin; align-items: center; justify-content: center; flex-wrap: wrap; text-align: left; }
+#setup-overlay .so-steps { flex: 1 1 50%; min-width: 280px; }
+#setup-overlay .so-big { font-size: 4.6vmin; font-weight: 800; color: #2dd4bf; word-break: break-all; }
+#setup-overlay .so-pass { letter-spacing: .12em; background: rgba(255,255,255,.1); padding: .3vmin 1.6vmin; border-radius: 1.4vmin; }
+#setup-overlay .so-small { font-size: 2.2vmin; opacity: .7; }
+#setup-overlay .so-qr { flex: 0 0 auto; width: 26vmin; text-align: center; }
+#setup-overlay .so-qr svg { width: 100%; height: auto; background: #fff; border-radius: 2vmin; display: block; }
+#setup-overlay .so-qr small { display: block; margin-top: 1.2vmin; font-size: 2vmin; opacity: .7; }
+#setup-overlay .so-err { background: rgba(239,68,68,.25); border: 1px solid rgba(239,68,68,.6); border-radius: 2vmin; padding: 1.6vmin 2.4vmin; margin-bottom: 3vmin; font-size: 2.6vmin; font-weight: 700; }

@@ -450,3 +450,14 @@ html { overscroll-behavior-y: contain; }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
 }
+
+/* Ayuda */
+details.help { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
+details.help summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 16px 18px; font-weight: 700; font-size: 15.5px; cursor: pointer; }
+details.help summary::-webkit-details-marker { display: none; }
+details.help summary svg.i { color: var(--accent); }
+details.help summary::after { content: ""; margin-left: auto; width: 8px; height: 8px; border-right: 2.4px solid var(--faint); border-bottom: 2.4px solid var(--faint); transform: rotate(45deg); transition: transform .2s; }
+details.help[open] summary::after { transform: rotate(-135deg); }
+.help-body { padding: 0 18px 18px; font-size: 14.5px; line-height: 1.55; }
+.help-body p { margin-bottom: 10px; }
+.help-list { padding-left: 20px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }

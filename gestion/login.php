@@ -1,4 +1,5 @@
 <?php
+require_once '../backend/bootstrap.php';
 require_once '../backend/config.php';
 session_start();
 
@@ -19,9 +20,8 @@ if (is_file($throttleFile)) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = $_POST['password'] ?? '';
-    // GESTION_PASSWORD puede ser texto plano o un hash de password_hash().
-    $isHash = strpos(GESTION_PASSWORD, '$2y$') === 0 || strpos(GESTION_PASSWORD, '$argon') === 0;
-    $okPass = $isHash ? password_verify($input, GESTION_PASSWORD) : hash_equals(GESTION_PASSWORD, $input);
+    // La clave cambiada desde Gestión (en la base) manda; si no, la de config.local.php.
+    $okPass = checkGestionPassword($pdo, $input);
     if (count($fails) >= 5) {
         $error = 'Demasiados intentos. Esperá 15 minutos.';
     } elseif ($okPass) {

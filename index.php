@@ -7,7 +7,7 @@
     <title>Visor - Porta Retrato v1.1</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
     <link rel="stylesheet" href="assets/vendor/fa/css/all.min.css">
-    <link rel="stylesheet" href="assets/css/viewer.css?v=20261110">
+    <link rel="stylesheet" href="assets/css/viewer.css?v=20261111">
 </head>
 <body>
     <div id="entry-overlay"></div>
@@ -58,6 +58,7 @@
         </div>
     </div>
 
-    <script src="assets/js/viewer.js?v=20261110"></script>
+    <script src="assets/vendor/qrcode.min.js"></script>
+    <script src="assets/js/viewer.js?v=20261111"></script>
 </body>
 </html>

@@ -114,7 +114,10 @@ try {
     $action = $_GET['action'] ?? '';
 
     // Lo que lee el Visor (esta misma PC) es público dentro de la red; todo lo demás exige sesión de Gestión.
-    $publicActions = ['get_visor_data', 'get_quick_show_media', 'get_recordatorios', 'mark_recordatorios_vistos', 'hija_list', 'hija_send'];
+    $publicActions = ['get_visor_data', 'get_quick_show_media', 'get_recordatorios', 'mark_recordatorios_vistos', 'hija_list', 'hija_send', 'estado_red'];
+    // Mientras el equipo tiene su propio WiFi abierto (modo ap), quien esté conectado a él
+    // puede elegir la red de la casa sin sesión; el WiFi propio tiene clave y solo la muestra la pantalla.
+    if (in_array($action, ['wifi_scan', 'wifi_connect'], true) && redEstado()['modo'] === 'ap') $publicActions[] = $action;
     if (!in_array($action, $publicActions, true)) requireAuth();
 
     switch ($action) {
@@ -128,7 +131,7 @@ try {
             unset($row);
 
             $settings = [];
-            foreach ($pdo->query("SELECT clave, valor FROM settings")->fetchAll() as $row) {
+            foreach ($pdo->query("SELECT clave, valor FROM settings WHERE clave NOT IN ('gestion_pass_hash', 'clave_inicial')")->fetchAll() as $row) {
                 $settings[$row['clave']] = $row['valor'];
             }
             if (!empty($settings['visor_off_image'])) {
@@ -182,10 +185,71 @@ try {
             if ((int)$pdo->query("SELECT COUNT(*) FROM recordatorios WHERE de_hija = 1 AND fecha_creacion > (NOW() - INTERVAL 1 MINUTE)")->fetchColumn() >= 10) {
                 echo json_encode(['error' => 'Esperá un momento']); break;
             }
-            $pdo->prepare("INSERT INTO recordatorios (mensaje, autor, de_hija) VALUES (?, ?, 1)")->execute([$mensaje, defined('HIJA_NOMBRE') ? HIJA_NOMBRE : 'Hija']);
+            $pdo->prepare("INSERT INTO recordatorios (mensaje, autor, de_hija) VALUES (?, ?, 1)")->execute([$mensaje, getSetting($pdo, 'familiar_nombre', defined('HIJA_NOMBRE') ? HIJA_NOMBRE : 'Hija') ?: 'Hija']);
             echo json_encode(['success' => true]);
             break;
 
+        // ─── RED, PRIMER USO Y SISTEMA ─────────────────────────────────────
+        case 'estado_red':
+            // Lo lee el Visor: ayuda en pantalla cuando no hay red o es el primer uso.
+            header('Cache-Control: no-store');
+            $r = redEstado();
+            $primer = getSetting($pdo, 'setup_done', '0') !== '1';
+            echo json_encode([
+                'modo'          => $r['modo'],
+                'setup'         => $r['setup'],
+                'error'         => $r['error'],
+                'primer_uso'    => $primer,
+                'clave_inicial' => $primer ? getSetting($pdo, 'clave_inicial') : '',
+                'host'          => gethostname(),
+                'ips'           => array_values(array_filter(preg_split('/\s+/', trim((string)@shell_exec('hostname -I 2>/dev/null'))))),
+            ]);
+            break;
+
+        case 'wifi_status':
+            echo json_encode(prAdmin(['wifi-status']));
+            break;
+
+        case 'wifi_scan':
+            echo json_encode(prAdmin(['wifi-scan']));
+            break;
+
+        case 'wifi_connect':
+            $data = json_decode(file_get_contents('php://input'), true) ?: [];
+            $ssid = trim((string)($data['ssid'] ?? ''));
+            $pass = (string)($data['clave'] ?? '');
+            if ($ssid === '' || preg_match('/[\r\n]/', $ssid . $pass)) { echo json_encode(['error' => 'Elegí una red']); break; }
+            echo json_encode(prAdmin(['wifi-connect'], $ssid . "\n" . $pass . "\n"));
+            break;
+
+        case 'sys_action':
+            $data = json_decode(file_get_contents('php://input'), true) ?: [];
+            $what = (string)($data['accion'] ?? '');
+            $val  = (string)($data['valor'] ?? '');
+            $map = ['reiniciar' => ['reboot'], 'apagar' => ['poweroff'], 'reabrir_visor' => ['restart-kiosk'],
+                    'olvidar_wifi' => ['wifi-forget'], 'zona' => ['set-timezone', $val], 'rotar' => ['set-rotate', $val]];
+            if (!isset($map[$what])) { echo json_encode(['error' => 'Acción desconocida']); break; }
+            if ($what === 'zona') setSetting($pdo, 'timezone', $val);
+            if ($what === 'rotar') setSetting($pdo, 'rotate', $val);
+            echo json_encode(prAdmin($map[$what]));
+            break;
+
+        case 'change_password':
+            $data = json_decode(file_get_contents('php://input'), true) ?: [];
+            $new = (string)($data['nueva'] ?? '');
+            $isFirst = getSetting($pdo, 'setup_done', '0') !== '1';
+            if (!$isFirst && !checkGestionPassword($pdo, (string)($data['actual'] ?? ''))) { echo json_encode(['error' => 'La clave actual no es correcta']); break; }
+            if (mb_strlen($new) < 6) { echo json_encode(['error' => 'La clave nueva debe tener al menos 6 caracteres']); break; }
+            setSetting($pdo, 'gestion_pass_hash', password_hash($new, PASSWORD_DEFAULT));
+            setSetting($pdo, 'clave_inicial', '');
+            echo json_encode(['success' => true]);
+            break;
+
+        case 'setup_done':
+            setSetting($pdo, 'setup_done', '1');
+            setSetting($pdo, 'clave_inicial', '');
+            echo json_encode(['success' => true]);
+            break;
         // ─── ESTADO DEL EQUIPO ─────────────────────────────────────────────
         case 'get_status':
             $dir = is_dir(syncDir()) ? syncDir() : projectRoot();
@@ -360,7 +424,7 @@ try {
         // ─── AJUSTES (reloj, clima, slide, modo noche, horario) ────────────
         case 'get_settings':
             $settings = [];
-            foreach ($pdo->query("SELECT clave, valor FROM settings")->fetchAll() as $row) {
+            foreach ($pdo->query("SELECT clave, valor FROM settings WHERE clave NOT IN ('gestion_pass_hash', 'clave_inicial')")->fetchAll() as $row) {
                 $settings[$row['clave']] = $row['valor'];
             }
             echo json_encode($settings);
