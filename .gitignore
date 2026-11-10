@@ -23,3 +23,8 @@ mirror/
 backend/mirror.config.php
 PortaRetrato.zip
 php/
+
+# Carpeta sincronizada (Syncthing) y su papelera: son las fotos del usuario
+sync/
+sync-papelera/
+agente/importar.log*

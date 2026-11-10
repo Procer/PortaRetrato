@@ -46,6 +46,6 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteRule ^uploads/.*\.(php|phtml|phar)$ - [F,L]
-    RewriteRule ^(mirror|agente)/ - [F,L]
+    RewriteRule ^(mirror|agente|sync|sync-papelera)/ - [F,L]
     RewriteRule ^backend/(mirror\.config|config|bootstrap)\.php$ - [F,L]
 </IfModule>

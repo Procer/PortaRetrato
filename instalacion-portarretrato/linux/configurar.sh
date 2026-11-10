@@ -18,7 +18,8 @@ apt-get update -qq
 apt-get install -y --no-install-recommends \
     php-cli php-curl php-mbstring git curl ca-certificates \
     xserver-xorg-core xserver-xorg-input-libinput xserver-xorg-video-all xinit x11-xserver-utils \
-    openbox unclutter chromium pipewire-audio fonts-dejavu-core unattended-upgrades
+    openbox unclutter chromium pipewire-audio fonts-dejavu-core fonts-inter fonts-liberation2 fonts-noto-color-emoji \
+    mesa-utils unattended-upgrades
 
 id "$USER_NAME" >/dev/null 2>&1 || useradd -m -s /bin/bash "$USER_NAME"
 usermod -aG video,audio,render,input "$USER_NAME" 2>/dev/null || usermod -aG video,audio "$USER_NAME"

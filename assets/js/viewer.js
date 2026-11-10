@@ -18,10 +18,9 @@ let quickShowCache = null;
 let quickShowCacheTs = 0;
 const QS_CACHE_TTL = 15 * 60 * 1000;
 
-// Modo sync — el Visor descarga cada archivo una sola vez (Service Worker) y
-// después reproduce desde el cache del navegador, incluso sin conexión.
-let lastManifestHash = null;
-const SYNC_INTERVAL = 60 * 1000; // cada 1 min pide el manifest al Laragon local (no gasta internet)
+// Cada minuto el Visor le pregunta al servidor local (esta misma PC) si algo cambió.
+let lastDataHash = null;
+const SYNC_INTERVAL = 60 * 1000;
 
 // Horario de encendido del Visor: fuera de él, reproducción frenada + imagen de reposo.
 let visorOff = false;
@@ -38,27 +37,15 @@ let recordatoriosCloseTimer = null;
 const display = document.getElementById('media-display');
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // La app corre en la misma PC del portarretrato (Laragon): la media se lee
-    // del disco local, no hace falta Service Worker. Si quedó uno registrado de
-    // la época del hosting, se desregistra y se borra su cache.
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations()
-            .then(regs => regs.forEach(r => r.unregister()))
-            .catch(() => {});
-    }
-    if (self.caches) {
-        caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {});
-    }
     restOverlayEl = document.getElementById('rest-overlay');
 
-    await syncFromManifest(true);   // primera carga: aplica settings y arranca el slideshow
+    await refreshVisorData(true);   // primera carga: aplica settings y arranca el slideshow
     loadWeatherData();
     updateClock();
     checkVisorSchedule();
     checkNightMode();
 
-    setInterval(syncFromManifest, SYNC_INTERVAL);
-    setInterval(reportDeviceStats, 5 * 60 * 1000);   // métricas para "Diagnóstico" de Gestión
+    setInterval(refreshVisorData, SYNC_INTERVAL);
     setInterval(loadRecordatorios, 60000);   // los mensajes familiares siguen casi en vivo
     setInterval(loadWeatherData, 1800000);
     setInterval(rotateWeather, 8000);
@@ -69,7 +56,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('offline', () => setConnectionState(false));
     window.addEventListener('online', () => {
         setConnectionState(true);
-        syncFromManifest();
+        refreshVisorData();
     });
 
     document.addEventListener('click', () => {
@@ -132,7 +119,7 @@ function updateClock() {
     if(widget) widget.className = `clock-glass style-${currentSettings.clock_style} size-${currentSettings.clock_size}`;
 }
 
-// Aplica el bloque de settings que viene dentro del manifest (key-value).
+// Aplica el bloque de settings que viene dentro de los datos (key-value).
 // No toca la red.
 function applySettings(settings) {
     if (!settings || settings.error) return;
@@ -297,10 +284,7 @@ const WEATHER_ICON_NAMES = ['clear-day', 'clear-night', 'partly-cloudy-day', 'pa
 let preloadedIconStyle = null;
 
 function iconFolderForStyle(styleName) {
-    if (styleName === 'minimal-line') return 'line';
-    if (styleName === 'neo-flat') return 'outline';
-    if (styleName === 'vibrant-anim') return 'monochrome';
-    return 'fill';
+    return styleName === 'minimal-line' ? 'line' : 'fill';
 }
 
 // Precarga en segundo plano los íconos del estilo activo para que, al llegar el
@@ -311,7 +295,7 @@ function preloadWeatherIcons(styleName) {
     preloadedIconStyle = styleName;
     const folder = iconFolderForStyle(styleName);
     WEATHER_ICON_NAMES.forEach(name => {
-        new Image().src = `https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/${folder}/all/${name}.svg`;
+        new Image().src = `assets/icons/weather/${folder}/${name}.svg`;
     });
 }
 
@@ -329,7 +313,7 @@ function getPremiumIconURL(code, styleName, isNight = false) {
     else if (c >= 95) name = 'thunderstorms';
     else name = 'cloudy';
     const folder = iconFolderForStyle(styleName);
-    return `https://cdn.jsdelivr.net/gh/basmilius/weather-icons/production/${folder}/all/${name}.svg`;
+    return `assets/icons/weather/${folder}/${name}.svg`;
 }
 
 // ─── ALERTA DE CLIMA SEVERO ───────────────────────────────────────────────────
@@ -399,44 +383,40 @@ function updateWeatherAlertUI() {
     }
 }
 
-// ─── MODO SYNC ───────────────────────────────────────────────────────────────
-// Pide el manifest (un JSON chico: toda la config + la lista de media del álbum
-// activo, cada archivo con su tamaño/mtime). Si algo cambió respecto de la
-// última vez: aplica settings, actualiza recordatorios / pase rápido y cambia
-// la playlist. La media se sirve desde el Laragon local de esta misma PC.
-async function syncFromManifest(isFirst = false) {
-    let manifest;
+// ─── DATOS DEL VISOR ─────────────────────────────────────────────────────────
+// Pide un JSON chico con toda la config + la lista de media de los álbumes
+// activos. Si algo cambió respecto de la última vez: aplica settings, actualiza
+// recordatorios / pase rápido y cambia la playlist.
+async function refreshVisorData(isFirst = false) {
+    let data;
     try {
-        const res = await fetch('backend/api.php?action=get_sync_manifest');
+        const res = await fetch('backend/api.php?action=get_visor_data');
         if (res.status === 304) { setConnectionState(true); return; }
-        // Si el hosting metió el filtro de seguridad ("One moment, please…") la
-        // respuesta es un 200 con text/html en vez del JSON. No es "estar online":
-        // se trata como caída para no romper el estado ni intentar parsear HTML.
         const ct = (res.headers.get('content-type') || '').toLowerCase();
         if (!ct.includes('json')) { setConnectionState(false); return; }
-        manifest = await res.json();
+        data = await res.json();
         setConnectionState(true);
     } catch (e) {
         setConnectionState(false);
         return;
     }
-    if (!manifest || manifest.error) return;
-    if (!isFirst && manifest.version_hash && manifest.version_hash === lastManifestHash) return;
-    lastManifestHash = manifest.version_hash || null;
+    if (!data || data.error) return;
+    if (!isFirst && data.version_hash && data.version_hash === lastDataHash) return;
+    lastDataHash = data.version_hash || null;
 
-    if (manifest.settings) applySettings(manifest.settings);
+    if (data.settings) applySettings(data.settings);
 
-    if (Array.isArray(manifest.recordatorios)) {
-        recordatoriosCache = manifest.recordatorios;
-        recordatoriosUnseenCount = manifest.recordatorios.filter(r => !parseInt(r.visto)).length;
+    if (Array.isArray(data.recordatorios)) {
+        recordatoriosCache = data.recordatorios;
+        recordatoriosUnseenCount = data.recordatorios.filter(r => !parseInt(r.visto)).length;
         updateMessagesBadge();
     }
-    if (Array.isArray(manifest.quick_show)) {
-        quickShowCache = manifest.quick_show;
+    if (Array.isArray(data.quick_show)) {
+        quickShowCache = data.quick_show;
         quickShowCacheTs = Date.now();
     }
 
-    const media = Array.isArray(manifest.media) ? manifest.media : [];
+    const media = Array.isArray(data.media) ? data.media : [];
     const mapped = media.map(m => ({
         id: m.id,
         ruta: m.ruta,
@@ -472,54 +452,6 @@ async function syncFromManifest(isFirst = false) {
             currentIndex = 0;
         }
     }
-
-    // Reporte de estado al backend (pantalla "Diagnóstico" de Gestión).
-    setTimeout(() => reportDeviceStats(isFirst), isFirst ? 9000 : 1500);
-}
-
-// ─── ESTADO DEL DISPOSITIVO ──────────────────────────────────────────────────
-// El Visor le avisa al backend que está vivo (pantalla "Diagnóstico" de
-// Gestión): cuántos archivos tiene el álbum, qué versión de contenido muestra
-// y si tiene conexión. Es telemetría: si algo falla, se ignora en silencio.
-function getDeviceId() {
-    let id = localStorage.getItem('pr_device_id');
-    if (!id) {
-        id = (self.crypto && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-        localStorage.setItem('pr_device_id', id);
-    }
-    return id;
-}
-
-// Nombre legible del portarretrato. Se fija abriendo el Visor una vez con
-// ?name=Living (queda guardado); si no, va vacío y Gestión muestra el id corto.
-function getDeviceName() {
-    const q = new URLSearchParams(location.search).get('name');
-    if (q) localStorage.setItem('pr_device_name', q.slice(0, 80));
-    return localStorage.getItem('pr_device_name') || '';
-}
-
-let lastReportTs = 0;
-async function reportDeviceStats(force = false) {
-    const now = Date.now();
-    if (!force && now - lastReportTs < 5 * 60 * 1000) return;
-    lastReportTs = now;
-    try {
-        const payload = {
-            device_id:    getDeviceId(),
-            nombre:       getDeviceName(),
-            media_total:  playlist.length,
-            version_hash: lastManifestHash || '',
-            online:       navigator.onLine ? 1 : 0,
-            ua:           navigator.userAgent.slice(0, 255)
-        };
-        await fetch('backend/api.php?action=report_device_stats', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-    } catch (e) { /* telemetría: nunca rompe el Visor */ }
 }
 
 function showNext() {
@@ -680,7 +612,7 @@ function preloadNext() {
     // Solo se precargan imágenes (livianas, ~cientos de KB tras la compresión WebP).
     // Los videos NO se precargan por adelantado: pueden pesar hasta 100MB y si el
     // Pase Rápido interrumpe el slideshow o la playlist cambia antes de mostrarse,
-    // esos bytes ya se habrían descargado del hosting para nada. El video se pide
+    // esos bytes se habrían leído para nada. El video se pide
     // recién al mostrarse (ver showNext) — la espera se cubre dejando la diapositiva
     // anterior visible en pantalla (sin negro) hasta que haya frame decodificado.
     if (playlist.length <= 1) return;
@@ -962,9 +894,21 @@ function openRecordatoriosOverlay() {
             const div = document.createElement('div');
             div.className = 'rec-overlay-item';
             const fecha = new Date(item.fecha_creacion.replace(' ', 'T')).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-            const autor = item.autor ? `${item.autor} · ` : '';
-            div.innerHTML = `<div class="rec-o-msg"></div><div class="rec-o-meta">${autor}${fecha}</div>`;
+            // Ícono de FontAwesome (local) en vez del emoji 💌: en el Debian sin fuente
+            // de emojis se veía como un cuadrito. El texto va por textContent (sin HTML).
+            div.innerHTML = '<div class="rec-o-msg"></div><div class="rec-o-meta"></div>';
             div.querySelector('.rec-o-msg').textContent = item.mensaje;
+            const meta = div.querySelector('.rec-o-meta');
+            if (item.autor) {
+                if (parseInt(item.de_hija)) {
+                    const ic = document.createElement('i');
+                    ic.className = 'fas fa-envelope';
+                    meta.appendChild(ic);
+                    meta.appendChild(document.createTextNode(' '));
+                }
+                meta.appendChild(document.createTextNode(item.autor + ' · '));
+            }
+            meta.appendChild(document.createTextNode(fecha));
             list.appendChild(div);
         });
     }

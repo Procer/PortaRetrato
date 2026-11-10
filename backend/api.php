@@ -111,6 +111,7 @@ try {
     }
 
     require_once 'config.php';
+    require_once 'sync_lib.php';
 
     // Acciones que además puede pedir el Visor / agente con token de dispositivo.
     $deviceActions = ['get_sync_manifest', 'report_device_stats', 'mark_recordatorios_vistos',
@@ -306,56 +307,47 @@ try {
             break;
 
         case 'delete_media':
-            $id = $_GET['id'] ?? 0;
-            $stmt = $pdo->prepare("SELECT ruta FROM media WHERE id = ?");
+            // Borra también el original de la carpeta sincronizada (Syncthing lo quita del celular).
+            $id = (int)($_GET['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT id, ruta, origen FROM media WHERE id = ?");
             $stmt->execute([$id]);
-            $row = $stmt->fetch();
-            if ($row) {
-                $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) @unlink($full_path);
-                deleteThumb($row['ruta']);
-                $stmt = $pdo->prepare("DELETE FROM media WHERE id = ?");
-                $stmt->execute([$id]);
-            }
+            if ($row = $stmt->fetch()) removeMediaRow($pdo, $row, true);
             echo json_encode(['success' => true]);
             break;
 
         case 'create_album':
             $data = json_decode(file_get_contents('php://input'), true);
-            $nombre = $data['nombre'] ?? 'Nuevo Album';
-            $stmt = $pdo->prepare("INSERT INTO albums (nombre) VALUES (?)");
-            $stmt->execute([$nombre]);
+            $nombre = trim($data['nombre'] ?? '') ?: 'Nuevo Album';
+            $base = $carpeta = safeFolderName($nombre);
+            $existe = $pdo->prepare("SELECT COUNT(*) FROM albums WHERE carpeta = ?");
+            for ($n = 2; ; $n++) {
+                $existe->execute([$carpeta]);
+                if (!$existe->fetchColumn() && !is_dir(syncDir() . '/' . $carpeta)) break;
+                $carpeta = "$base $n";
+            }
+            if (syncFolderReady()) @mkdir(syncDir() . '/' . $carpeta, 0755, true);
+            $pdo->prepare("INSERT INTO albums (nombre, carpeta) VALUES (?, ?)")->execute([$nombre, $carpeta]);
             echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
             break;
 
         case 'empty_album':
-            $id = $_GET['id'] ?? 0;
-            // Obtener rutas de archivos para borrarlos físicamente
-            $stmt = $pdo->prepare("SELECT ruta FROM media WHERE album_id = ?");
-            $stmt->execute([$id]);
-            foreach ($stmt->fetchAll() as $row) {
-                $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) @unlink($full_path);
-                deleteThumb($row['ruta']);
-            }
-            $stmt = $pdo->prepare("DELETE FROM media WHERE album_id = ?");
-            $stmt->execute([$id]);
-            echo json_encode(['success' => true]);
-            break;
-
         case 'delete_album':
-            $id = $_GET['id'] ?? 0;
-            // Primero vaciamos para borrar archivos físicos
-            $stmt = $pdo->prepare("SELECT ruta FROM media WHERE album_id = ?");
+            $id = (int)($_GET['id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT id, ruta, origen FROM media WHERE album_id = ?");
             $stmt->execute([$id]);
-            foreach ($stmt->fetchAll() as $row) {
-                $full_path = '../' . $row['ruta'];
-                if (file_exists($full_path)) @unlink($full_path);
-                deleteThumb($row['ruta']);
+            foreach ($stmt->fetchAll() as $row) removeMediaRow($pdo, $row, true);
+            if ($action === 'delete_album') {
+                $c = $pdo->prepare("SELECT carpeta FROM albums WHERE id = ?");
+                $c->execute([$id]);
+                $carpeta = $c->fetchColumn();
+                // La carpeta va a la papelera completa (incluye lo que no era foto/video).
+                if ($carpeta && syncFolderReady() && is_dir(syncDir() . '/' . $carpeta)) {
+                    $dest = trashDir() . '/' . date('Ymd-His') . '-album/' . $carpeta;
+                    @mkdir(dirname($dest), 0755, true);
+                    @rename(syncDir() . '/' . $carpeta, $dest);
+                }
+                $pdo->prepare("DELETE FROM albums WHERE id = ?")->execute([$id]);
             }
-            // Borrar el álbum (el CASCADE de la BD borraría los registros de media)
-            $stmt = $pdo->prepare("DELETE FROM albums WHERE id = ?");
-            $stmt->execute([$id]);
             echo json_encode(['success' => true]);
             break;
 

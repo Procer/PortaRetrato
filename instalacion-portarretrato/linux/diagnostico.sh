@@ -1,23 +1,36 @@
 #!/bin/bash
-# Resumen del estado del portarretrato en una pantalla (sacarle foto y mandarla).
+# Diagnostico rapido del portarretrato. Correr como root en el Debian:
+#   bash /opt/portaretrato/instalacion-portarretrato/linux/diagnostico.sh
 APP=/opt/portaretrato
-st() { printf '%-34s %s\n' "$1" "$(systemctl is-active "$1" 2>/dev/null)"; }
+st() { printf '%-34s %s\n' "$1" "$(systemctl is-active "$1" 2>&1)"; }
+
 echo "=== SERVICIOS ==="
-st portaretrato-server.service
-st portaretrato-sync.timer
-printf '%-34s %s\n' "chromium corriendo" "$(pgrep -c chromium || echo 0) procesos"
-echo "=== SERVIDOR LOCAL ==="
-printf 'Visor (/)            HTTP %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/)"
-M="$(curl -s 'http://127.0.0.1:8080/backend/api.php?action=get_sync_manifest')"
-printf 'Fotos en el manifest: %s\n' "$(echo "$M" | grep -o '"ruta"' | wc -l)"
-echo "Manifest (inicio): $(echo "$M" | cut -c1-110)"
-echo "=== ARCHIVOS ==="
-printf 'Archivos en uploads/: %s\n' "$(find $APP/uploads -type f 2>/dev/null | wc -l)"
-ls -la $APP/backend/mirror.config.php 2>&1 | cut -c1-70
-echo "=== ULTIMO SYNC (mirror/sync.log) ==="
-tail -n 6 $APP/mirror/sync.log 2>/dev/null | cut -c1-150 || echo "(sin log)"
-echo "=== PROBAR SYNC AHORA ==="
-timeout 120 php $APP/agente/sync.php; echo "codigo de salida: $?"
-echo "=== SISTEMA ==="
-free -m | awk 'NR==2{print "RAM usada/total MB: "$3"/"$2}'
-df -h / | awk 'NR==2{print "Disco: "$3" usados de "$2}'
+st apache2
+st mariadb
+st syncthing@frame
+st avahi-daemon
+st portaretrato-importar.timer
+
+echo "=== RED ==="
+hostname -I
+printf 'Visor (/)            HTTP %s\n' "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/)"
+M="$(curl -s 'http://localhost/backend/api.php?action=get_visor_data')"
+printf 'Fotos y videos activos: %s\n' "$(echo "$M" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["media"]))' 2>/dev/null || echo '?')"
+
+echo "=== DISCO ==="
+df -h / | tail -1
+du -sh $APP/sync $APP/uploads 2>/dev/null
+
+echo "=== ULTIMO IMPORT (agente/importar.log) ==="
+tail -n 6 $APP/agente/importar.log 2>/dev/null | cut -c1-150 || echo "(sin log)"
+
+echo "=== GRAFICA / FUENTES ==="
+lspci 2>/dev/null | grep -iE 'vga|3d|display' | cut -c1-120
+printf 'Fuente Inter:        %s\n' "$(fc-list 2>/dev/null | grep -qi 'inter' && echo OK || echo 'FALTA (apt install fonts-inter)')"
+printf 'Fuente de emojis:    %s\n' "$(fc-list 2>/dev/null | grep -qi 'emoji' && echo OK || echo 'FALTA (apt install fonts-noto-color-emoji)')"
+if [ -f /var/log/Xorg.0.log ] || [ -f "/home/frame/.local/share/xorg/Xorg.0.log" ]; then
+    grep -hE '\(EE\)|\(WW\).*(driver|modeset|GLX)' /var/log/Xorg.0.log /home/frame/.local/share/xorg/Xorg.0.log 2>/dev/null | grep -v 'Failed to load module.*(not exist' | tail -n 6 | cut -c1-160
+fi
+
+echo "=== ERRORES DE APACHE ==="
+tail -n 5 /var/log/apache2/portaretrato-error.log 2>/dev/null | cut -c1-200

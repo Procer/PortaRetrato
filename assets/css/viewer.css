@@ -3,7 +3,8 @@
     --accent-gradient: linear-gradient(135deg, #8b5cf6 0%, #2dd4bf 100%);
 }
 
-body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; cursor: none; }
+body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; cursor: none; font-family: 'Inter', 'DejaVu Sans', 'Liberation Sans', Arial, sans-serif; }
+.rec-overlay-item .rec-o-meta i { color: var(--accent); margin-right: 2px; }
 #viewer-container { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; position: relative; background: radial-gradient(circle, #111 0%, #000 100%); }
 #media-display { width: 100%; height: 100%; position: relative; overflow: hidden; }
 #media-display img, #media-display video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
