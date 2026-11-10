@@ -1,0 +1,77 @@
+#!/bin/bash
+# Actualiza el portarretrato desde GitHub. Lo corre systemd cada noche (portaretrato-actualizar.timer),
+# el panel con "Actualizar ahora", o vos a mano:  sudo pr-actualizar
+#
+# Canal (lo decide el panel y queda en /var/lib/portaretrato/channel):
+#   stable  rama "stable": solo lo que vos promoviste (clientes)
+#   main    rama "main":   lo último que programás (tu notebook)
+#
+# Si después de actualizar el Visor no responde, VUELVE a la versión anterior.
+set -u
+APP=/opt/portaretrato
+STATE=/var/lib/portaretrato
+USR=frame
+LOG=$STATE/actualizar.log
+mkdir -p "$STATE"
+
+exec 9>"$STATE/actualizar.lock"
+flock -n 9 || { echo "Ya hay una actualización en curso"; exit 0; }
+
+log() { echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
+resultado() {  # ok(true|false) mensaje desde hasta
+    printf '{"ts":"%s","ok":%s,"msg":"%s","desde":"%s","hasta":"%s"}\n' "$(date '+%F %T')" "$1" "$2" "$3" "$4" > "$STATE/last-update.json"
+}
+git_() { runuser -u $USR -- git -C "$APP" "$@"; }
+
+[ -d "$APP/.git" ] || { log "No es un clon de git: nada para actualizar"; resultado false "No es un clon de git" "" ""; exit 1; }
+
+CANAL="$(cat "$STATE/channel" 2>/dev/null || echo stable)"
+case "$CANAL" in stable|main) ;; *) CANAL=stable ;; esac
+
+git_ fetch --quiet origin "$CANAL" 2>>"$LOG" || {
+    if [ "$CANAL" = stable ]; then log "No existe la rama stable todavía: uso main"; CANAL=main; git_ fetch --quiet origin main 2>>"$LOG" || { log "Sin acceso a GitHub"; resultado false "Sin acceso a GitHub" "" ""; exit 1; }
+    else log "Sin acceso a GitHub"; resultado false "Sin acceso a GitHub" "" ""; exit 1; fi
+}
+
+ANTES="$(git_ rev-parse --short HEAD)"
+NUEVO="$(git_ rev-parse --short FETCH_HEAD)"
+if [ "$(git_ rev-parse HEAD)" = "$(git_ rev-parse FETCH_HEAD)" ]; then
+    log "Ya está al día ($ANTES, canal $CANAL)"
+    resultado true "Al día" "$ANTES" "$ANTES"
+    exit 0
+fi
+
+log "Actualizando $ANTES -> $NUEVO (canal $CANAL)"
+cp "$APP/instalacion-portarretrato/linux/pr-red.sh" /tmp/pr-red.antes 2>/dev/null
+git_ checkout -q -B "$CANAL" FETCH_HEAD 2>>"$LOG" || git_ reset --hard -q FETCH_HEAD 2>>"$LOG"
+
+# Cambios de base de datos (schema.sql es repetible)
+mysql portaretrato < "$APP/schema.sql" 2>>"$LOG"
+
+# Piezas del sistema que viven fuera de /opt/portaretrato
+for f in pr-admin pr-actualizar; do
+    cmp -s "$APP/instalacion-portarretrato/linux/$f" /usr/local/bin/$f || install -m 755 "$APP/instalacion-portarretrato/linux/$f" /usr/local/bin/$f
+done
+if ! cmp -s "$APP/instalacion-portarretrato/linux/pr-red.sh" /usr/local/bin/pr-red; then
+    install -m 755 "$APP/instalacion-portarretrato/linux/pr-red.sh" /usr/local/bin/pr-red
+    systemctl restart portaretrato-red 2>/dev/null
+fi
+# Ganchos de cada versión (migraciones del sistema que no son de la base)
+[ -f "$APP/instalacion-portarretrato/linux/post-update.sh" ] && bash "$APP/instalacion-portarretrato/linux/post-update.sh" "$ANTES" "$NUEVO" >>"$LOG" 2>&1
+chown -R $USR:$USR "$APP" 2>/dev/null
+
+systemctl reload apache2 2>/dev/null
+sleep 3
+if curl -sf -o /dev/null http://localhost/ && curl -sf -o /dev/null "http://localhost/backend/api.php?action=estado_red"; then
+    log "OK: versión $NUEVO"
+    resultado true "Actualizado" "$ANTES" "$NUEVO"
+    pkill -x chromium 2>/dev/null     # el kiosk lo reabre con los archivos nuevos
+else
+    log "FALLÓ la comprobación: vuelvo a $ANTES"
+    git_ reset --hard -q "$ANTES" 2>>"$LOG"
+    mysql portaretrato < "$APP/schema.sql" 2>>"$LOG"
+    chown -R $USR:$USR "$APP" 2>/dev/null
+    systemctl reload apache2 2>/dev/null
+    resultado false "Falló la actualización; se volvió a la versión anterior" "$ANTES" "$NUEVO"
+    exit 1
+fi

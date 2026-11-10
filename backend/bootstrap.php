@@ -90,6 +90,9 @@ function setSetting(PDO $pdo, string $key, string $value): void {
     $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES (?, ?)")->execute([$key, $value]);
 }
 
+/** Funciones que el panel de administración puede activar/desactivar (backend/features.json). */
+function featOn(PDO $pdo, string $key): bool { return getSetting($pdo, 'feat_' . $key, '1') !== '0'; }
+
 /** La clave cambiada desde Gestión (hash en la base) manda sobre la de config.local.php. */
 function checkGestionPassword(PDO $pdo, string $input): bool {
     $hash = getSetting($pdo, 'gestion_pass_hash');

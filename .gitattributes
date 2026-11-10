@@ -2,3 +2,6 @@
 *.cfg text eol=lf
 instalacion-portarretrato/linux/pr-admin text eol=lf
 instalacion-portarretrato/linux/pr-red.sh text eol=lf
+instalacion-portarretrato/linux/pr-actualizar text eol=lf
+panel/install-panel.sh text eol=lf
+instalacion-portarretrato/linux/instalar-agente.sh text eol=lf

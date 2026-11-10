@@ -6,17 +6,14 @@ Objetivo: vos lo instalás, se lo das, **lo enchufa y anda**. Lo único que hace
 
 ## 1. Instalación (la hacés vos, con cable de red)
 
-1. Instalar Debian (preseed o manual, ver `linux/preseed.template.cfg` / `finalizar.sh`) con usuario `frame`.
-2. Copiar el proyecto: `git clone https://github.com/Procer/PortaRetrato.git /opt/portaretrato && chown -R frame:frame /opt/portaretrato`
-3. Como root:
-   ```
-   bash /opt/portaretrato/instalacion-portarretrato/linux/instalar-servidor.sh   # Apache, PHP, MariaDB, Syncthing, red/WiFi
-   bash /opt/portaretrato/instalacion-portarretrato/linux/configurar.sh          # Xorg, Chromium, fuentes, kiosk
-   bash /opt/portaretrato/instalacion-portarretrato/linux/https.sh               # opcional: instalar Gestión como app
-   ```
-   `instalar-servidor.sh` pasa la red a **NetworkManager** (necesario para el WiFi) y deja listos el WiFi de configuración y los permisos para que Gestión pueda cambiar WiFi, reiniciar, etc. Si lo corrés conectado por SSH, la conexión puede cortarse unos segundos.
-4. Reiniciar y comprobar: `bash .../linux/diagnostico.sh` (servicios `active`, Visor HTTP 200, fuentes OK).
-5. Probá todo como lo verá el dueño (ver sección 3).
+Lo normal es usar el **pendrive** (ver `GUIA-PANEL.md`): arrancás la notebook desde él y el resto es automático (Debian + proyecto + WiFi + pantalla + registro en el panel).
+
+A mano, sobre un Debian ya instalado con usuario `frame`:
+```
+git clone https://github.com/Procer/PortaRetrato.git /opt/portaretrato && chown -R frame:frame /opt/portaretrato
+sudo bash /opt/portaretrato/instalacion-portarretrato/linux/finalizar.sh [URL_PANEL CODIGO_ALTA [stable|main]]
+```
+Instala servidor, red (NetworkManager y WiFi propio), agente del panel, actualización nocturna y la pantalla kiosco. Comprobar con `bash .../linux/diagnostico.sh`.
 
 ## 2. Entrega: dejarlo "de fábrica"
 

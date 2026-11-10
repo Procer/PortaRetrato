@@ -17,7 +17,7 @@ NEW_CFG=0
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y -q apache2 libapache2-mod-php mariadb-server php-mysql php-gd php-mbstring \
-    php-xml php-curl php-zip syncthing avahi-daemon ffmpeg python3 \n    network-manager dnsmasq-base iw sudo >/dev/null
+    php-xml php-curl php-zip syncthing avahi-daemon ffmpeg python3 \n    network-manager dnsmasq-base iw sudo curl \n    firmware-linux-free firmware-misc-nonfree firmware-iwlwifi firmware-realtek firmware-atheros firmware-brcm80211 >/dev/null 2>&1 || \n    apt-get install -y -q network-manager dnsmasq-base iw sudo curl >/dev/null
 
 # ── Nombre en la red (portaretrato.local) y zona horaria ─────────────────────
 hostnamectl set-hostname "$HOSTNAME_NEW"
@@ -119,6 +119,9 @@ EOF2
 systemctl daemon-reload
 systemctl enable NetworkManager portaretrato-red >/dev/null 2>&1
 systemctl restart NetworkManager portaretrato-red 2>/dev/null || true
+
+# ── Panel de administración: agente (avisa cada 10 min) y actualización nocturna ──
+bash "$APP/instalacion-portarretrato/linux/instalar-agente.sh"
 
 # ── Importador: cada minuto ─────────────────────────────────────────────────
 cat > /etc/systemd/system/portaretrato-importar.service <<EOF

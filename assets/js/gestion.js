@@ -158,8 +158,20 @@ const TABS = [
     ['ayuda', 'Ayuda', 'help'],
 ];
 
+// Funciones que el panel de administración puede desactivar (feat_x = '0' en los ajustes)
+let FEAT = {};
+const TAB_FEAT = { pase: 'pase_rapido', mensajes: 'mensajes' };
+const SECTION_FEAT = { 'Clima': 'clima', 'Modo noche': 'modo_noche', 'Horario de encendido': 'horario', 'Sincronizar desde el celular': 'sincronizacion' };
+const featOk = k => !k || FEAT[k] !== false;
+function hideDisabledSections() {
+    main.querySelectorAll('.section-title').forEach(t => {
+        const k = SECTION_FEAT[t.textContent.trim()];
+        if (k && !featOk(k)) { const nx = t.nextElementSibling; if (nx && nx.classList.contains('card')) nx.remove(); t.remove(); }
+    });
+}
+
 function renderTabs(active) {
-    $('#tabbar').innerHTML = TABS.map(([id, label, icon]) =>
+    $('#tabbar').innerHTML = TABS.filter(t => featOk(TAB_FEAT[t[0]])).map(([id, label, icon]) =>
         `<a class="tab ${active === id ? 'on' : ''}" href="#/${id}">${ic(icon)}<span>${label}</span></a>`).join('');
     $$('.tab').forEach(t => t.addEventListener('click', () => buzz(6)));
 }
@@ -180,11 +192,15 @@ function route() {
     if (setupChecked || tab === 'bienvenida') return void Promise.resolve(views[tab](token)).catch(fail);
     setupChecked = true;
     api('get_settings').then(cfg => {
+        FEAT = {}; Object.keys(cfg).forEach(k => { if (k.indexOf('feat_') === 0) FEAT[k.slice(5)] = cfg[k] !== '0'; });
+        renderTabs(tab === 'bienvenida' ? '' : tab);
+        if (!featOk(TAB_FEAT[tab])) { location.hash = '#/albumes'; return; }
         if (cfg.setup_done !== '1') { location.hash = '#/bienvenida'; if (tab === 'bienvenida') route(); }
         else views[tab](token);
     }).catch(fail);
 }
 let setupChecked = false;
+new MutationObserver(hideDisabledSections).observe(main, { childList: true });
 window.addEventListener('hashchange', route);
 
 // Animación de entrada solo cuando cambia de pantalla (no en cada refresco)

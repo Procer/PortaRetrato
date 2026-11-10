@@ -1,0 +1,8 @@
+[
+  {"key": "clima",          "label": "Clima",                    "desc": "Widget de clima y alertas de clima severo en el Visor, y su configuración en Gestión."},
+  {"key": "mensajes",       "label": "Mensajes familiares",      "desc": "Notas en pantalla, botón 3 y la página para escribir desde otro celular (/hija/)."},
+  {"key": "pase_rapido",    "label": "Pase Rápido",              "desc": "Imágenes sorpresa por día y hora (toque en pantalla y botón 1)."},
+  {"key": "horario",        "label": "Horario de encendido",     "desc": "Apagar la pantalla por horario con imagen de reposo."},
+  {"key": "modo_noche",     "label": "Modo noche",               "desc": "Atenuar el brillo de noche."},
+  {"key": "sincronizacion", "label": "Sincronizar desde el celular", "desc": "Syncthing: subir fotos automáticamente desde el celular."}
+]

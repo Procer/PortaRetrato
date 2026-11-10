@@ -178,6 +178,7 @@ try {
             break;
 
         case 'hija_send':
+            if (!featOn($pdo, 'mensajes')) { echo json_encode(['error' => 'Esta función está desactivada']); break; }
             $data = json_decode(file_get_contents('php://input'), true);
             $mensaje = mb_substr(trim($data['mensaje'] ?? ''), 0, 280);
             if ($mensaje === '') { echo json_encode(['error' => 'Escribí algo primero']); break; }
@@ -434,7 +435,8 @@ try {
             $data = json_decode(file_get_contents('php://input'), true);
             $stmt = $pdo->prepare("REPLACE INTO settings (clave, valor) VALUES (?, ?)");
             foreach ($data as $key => $value) {
-                if ($key === 'visor_off_image') continue;   // se cambia solo con la subida / clear_rest_image
+                if ($key === 'visor_off_image') continue;
+                if (strpos($key, 'feat_') === 0 || strpos($key, 'panel_') === 0 || $key === 'gestion_pass_hash' || $key === 'clave_inicial') continue;   // los maneja el panel / sus propias acciones   // se cambia solo con la subida / clear_rest_image
                 $stmt->execute([$key, $value]);
             }
             echo json_encode(['success' => true]);

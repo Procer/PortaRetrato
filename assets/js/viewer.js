@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (visorOff) return;
         if (e.key === '1') { if (!quickShowActive) startQuickShow(); }
         else if (e.key === '2') { toggleVideoSound(); }
-        else if (e.key === '3') { openRecordatoriosOverlay(); }
+        else if (e.key === '3') { if (FEAT.mensajes !== false) openRecordatoriosOverlay(); }
     });
 });
 
@@ -121,6 +121,7 @@ function updateClock() {
 
 // Aplica el bloque de settings que viene dentro de los datos (key-value).
 // No toca la red.
+let FEAT = {};
 function applySettings(settings) {
     if (!settings || settings.error) return;
 
@@ -134,6 +135,10 @@ function applySettings(settings) {
     currentSettings.night_end = settings.night_end || '07:00';
     currentSettings.quick_show_duration = parseInt(settings.quick_show_duration) || 8;
     currentSettings.recordatorios_duration = parseInt(settings.recordatorios_duration) || 20;
+
+    // Funciones que el panel de administración puede desactivar (feat_x = '0')
+    FEAT = {};
+    ['clima', 'mensajes', 'pase_rapido', 'horario', 'modo_noche'].forEach(k => { FEAT[k] = settings['feat_' + k] !== '0'; document.body.classList.toggle('no-' + k.replace('_', '-'), !FEAT[k]); });
 
     // Horario de encendido del Visor + imagen de reposo
     currentSettings.visor_schedule_enabled = settings.visor_schedule_enabled || '0';
@@ -622,7 +627,7 @@ function preloadNext() {
 }
 
 function checkNightMode() {
-    const enabled = currentSettings.night_mode_enabled === '1';
+    const enabled = currentSettings.night_mode_enabled === '1' && FEAT.modo_noche !== false;
     const overlay = document.getElementById('night-overlay');
     if (!overlay) return;
     // En reposo manda la imagen de reposo; el overlay de noche no debe taparla.
@@ -655,7 +660,7 @@ function isWithinOffWindow(now, onStr, offStr) {
 }
 
 function checkVisorSchedule() {
-    const enabled = currentSettings.visor_schedule_enabled === '1';
+    const enabled = currentSettings.visor_schedule_enabled === '1' && FEAT.horario !== false;
     const shouldRest = enabled && isWithinOffWindow(new Date(), currentSettings.visor_on, currentSettings.visor_off);
     if (shouldRest && !visorOff) enterRestMode();
     else if (!shouldRest && visorOff) exitRestMode();
@@ -702,7 +707,7 @@ function exitRestMode() {
 // ─── PASE RÁPIDO ─────────────────────────────────────────────────────────────
 
 async function startQuickShow() {
-    if (visorOff) return;
+    if (visorOff || FEAT.pase_rapido === false) return;
     if (quickShowActive) return;
     try {
         const now = Date.now();
